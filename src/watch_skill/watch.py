@@ -250,6 +250,16 @@ def watch(
         )
 
     progress("transcribing (captions -> local whisper)", 0.7)
+
+    def whisper_progress(done: float, total: float, segments: int) -> None:
+        # A long local transcription is most of a watch; reporting it per
+        # segment is what lets a poller tell slow from stuck.
+        share = min(1.0, done / total) if total > 0 else 0.0
+        progress(
+            f"transcribing (local whisper) {done:.0f}/{total:.0f}s, {segments} segments",
+            0.7 + 0.2 * share,
+        )
+
     transcript = get_transcript(
         acq.video_path,
         work_dir,
@@ -262,6 +272,7 @@ def watch(
         end_seconds=end_seconds,
         word_timestamps=word_timestamps,
         language=language,
+        on_progress=whisper_progress,
     )
     if start_seconds is not None or end_seconds is not None:
         transcript = transcript.filter_range(start_seconds, end_seconds)

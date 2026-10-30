@@ -10,6 +10,7 @@ gap.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -66,8 +67,13 @@ def get_transcript(
     end_seconds: float | None = None,
     word_timestamps: bool = False,
     language: str | None = None,
+    on_progress: Callable[[float, float, int], None] | None = None,
 ) -> Transcript:
     """Run the ladder. Any rung may be force-disabled; defaults come from settings.
+
+    ``on_progress(done_seconds, total_seconds, segments)`` reaches the
+    local-whisper rung only (window-relative seconds); captions are instant
+    and cloud STT reports nothing until it answers.
 
     ``language`` forces the spoken language (a code or English name; None
     falls back to ``WATCHSKILL_WHISPER_LANGUAGE``, then auto-detection). It
@@ -111,7 +117,7 @@ def get_transcript(
             )
             transcript = local.transcribe_local(
                 audio_path, model_size=model, language=lang,
-                word_timestamps=word_timestamps,
+                word_timestamps=word_timestamps, on_progress=on_progress,
             )
             return done(transcript.offset(start_seconds or 0.0))
         except TranscriptionError as exc:

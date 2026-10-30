@@ -94,7 +94,9 @@ Poll a background job started with `watch_video(background=true)`.
 
 Returns status/phase/progress JSON; when done it includes the `video_id`
 and the exact `ask_video` call to make next. Poll every few seconds, not
-in a tight loop.
+in a tight loop. During a long local-whisper transcription the stage is
+`transcribe` and progress keeps moving with each decoded segment, so a
+value that stops changing for minutes means stuck, not slow.
 
 ### `cancel_job`
 

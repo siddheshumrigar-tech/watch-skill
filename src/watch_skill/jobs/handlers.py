@@ -23,6 +23,26 @@ _STAGE_PROGRESS: dict[JobStage, float] = {
 }
 
 
+def _stage_for(phase: str, fraction: float) -> tuple[JobStage, float]:
+    """Map a watch() progress phase to a job stage and overall progress.
+
+    Matched by prefix: local whisper reports
+    ``transcribing (local whisper) 120/600s, 14 segments`` many times, and an
+    exact-string table sent every one of those to PROBE. Transcription
+    progress (watch() reports 0.7 -> 0.9) is interpolated between the OCR and
+    TRANSCRIBE stage values, so a long transcription visibly moves.
+    """
+    if phase.startswith("acquiring"):
+        return JobStage.ACQUIRE, _STAGE_PROGRESS[JobStage.ACQUIRE]
+    if phase.startswith("extracting frames"):
+        return JobStage.FRAMES, _STAGE_PROGRESS[JobStage.FRAMES]
+    if phase.startswith("transcribing"):
+        lo, hi = _STAGE_PROGRESS[JobStage.OCR], _STAGE_PROGRESS[JobStage.TRANSCRIBE]
+        share = max(0.0, min(1.0, (fraction - 0.7) / 0.2))
+        return JobStage.TRANSCRIBE, lo + (hi - lo) * share
+    return JobStage.PROBE, _STAGE_PROGRESS.get(JobStage.PROBE, fraction)
+
+
 def _watch_job(ctx: JobContext) -> tuple[str | None, str | None]:
     """Watch and index a source, checkpointing at every stage boundary."""
     from watch_skill.index.store import index_watch_result
@@ -32,17 +52,12 @@ def _watch_job(ctx: JobContext) -> tuple[str | None, str | None]:
     payload = ctx.payload
     ctx.checkpoint(JobStage.ACQUIRE, _STAGE_PROGRESS[JobStage.ACQUIRE])
 
-    # The pipeline's own progress callback is mapped onto stages so a cancel
-    # lands between phases rather than only at the end.
-    phase_to_stage = {
-        "acquiring source": JobStage.ACQUIRE,
-        "extracting frames (scenes, dedup, OCR)": JobStage.FRAMES,
-        "transcribing (captions -> local whisper)": JobStage.TRANSCRIBE,
-    }
-
     def on_progress(phase: str, fraction: float) -> None:
-        stage = phase_to_stage.get(phase, JobStage.PROBE)
-        ctx.checkpoint(stage, _STAGE_PROGRESS.get(stage, fraction))
+        # The pipeline's own progress callback is mapped onto stages so a
+        # cancel lands between phases, and inside a long local-whisper run,
+        # rather than only at the end.
+        stage, progress = _stage_for(phase, fraction)
+        ctx.checkpoint(stage, progress)
 
     result = watch(
         payload["source"],

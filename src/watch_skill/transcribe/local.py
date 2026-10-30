@@ -9,6 +9,8 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 from watch_skill.errors import TranscriptionError
@@ -120,16 +122,62 @@ def requested_device() -> str | None:
     return requested if requested in {"cpu", "cuda"} else None
 
 
+class _ProgressAborted(Exception):
+    """Carries an exception raised by the progress callback past the
+    device-fallback handlers, which would otherwise turn a job cancel into a
+    transcription failure (or a retry on the processor)."""
+
+    def __init__(self, original: BaseException) -> None:
+        super().__init__(str(original))
+        self.original = original
+
+
+class _Progress:
+    """Throttled progress: at most once a second or per 2% of the file,
+    plus a final call when decoding finishes."""
+
+    def __init__(self, callback: Callable[[float, float, int], None] | None) -> None:
+        self.callback = callback
+        self.total = 0.0
+        self._last_time = float("-inf")
+        self._last_fraction = -1.0
+
+    def _emit(self, done: float, count: int) -> None:
+        try:
+            self.callback(done, self.total, count)
+        except Exception as exc:  # noqa: BLE001 - re-raised unchanged by the caller
+            raise _ProgressAborted(exc) from exc
+
+    def segment(self, done: float, count: int) -> None:
+        if self.callback is None:
+            return
+        fraction = done / self.total if self.total > 0 else 0.0
+        now = time.monotonic()
+        if now - self._last_time >= 1.0 or fraction - self._last_fraction >= 0.02:
+            self._last_time, self._last_fraction = now, fraction
+            self._emit(done, count)
+
+    def finish(self, done: float, count: int) -> None:
+        if self.callback is not None:
+            self._emit(max(done, self.total), count)
+
+
 def transcribe_local(
     audio_path: Path,
     model_size: str = "auto",
     language: str | None = None,
     word_timestamps: bool = False,
+    on_progress: Callable[[float, float, int], None] | None = None,
 ) -> Transcript:
     """Transcribe an audio file fully offline with faster-whisper.
 
     ``word_timestamps`` asks the model to align each word. It costs extra
     decoding time, so it is off unless something needs word-level citation.
+
+    ``on_progress(done_seconds, total_seconds, segments_so_far)`` is called
+    as segments decode (at most once a second or per 2% of the file) and once
+    at the end. An exception it raises stops decoding and propagates
+    unchanged — that is how a job cancel lands mid-transcription.
     """
     try:
         from faster_whisper import WhisperModel  # noqa: PLC0415
@@ -156,8 +204,13 @@ def transcribe_local(
             vad_filter=True,
             word_timestamps=word_timestamps,
         )
+        progress = _Progress(on_progress)
+        progress.total = float(getattr(info, "duration", 0.0) or 0.0)
         collected = []
-        for raw in raw_segments:
+        done = 0.0
+        for raw in raw_segments:  # lazy: iterating is what decodes
+            done = max(done, float(raw.end))
+            progress.segment(done, len(collected) + (1 if raw.text.strip() else 0))
             if not raw.text.strip():
                 continue
             words = [
@@ -173,11 +226,14 @@ def transcribe_local(
                     words=words,
                 )
             )
+        progress.finish(done, len(collected))
         return collected, info
 
     device = pick_device()
     try:
         segments, info = attempt(device)
+    except _ProgressAborted as aborted:
+        raise aborted.original from None
     except Exception as exc:
         # A visible NVIDIA GPU and a working CTranslate2 CUDA path are
         # different claims, and `has_cuda_gpu` can only check the first. On a
@@ -212,6 +268,8 @@ def transcribe_local(
         )
         try:
             segments, info = attempt("cpu")
+        except _ProgressAborted as aborted:
+            raise aborted.original from None
         except Exception as cpu_exc:
             raise TranscriptionError(
                 f"local whisper failed on the GPU and on the processor: {cpu_exc}",

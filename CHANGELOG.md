@@ -34,6 +34,11 @@
   section and ends with a `## Machine summary` JSON block; REST `/v1/watch`
   returns it as `summary`, and `watch-skill watch --json` prints
   `{video_id, summary, warnings}`.
+- Local whisper reports progress per segment
+  (`transcribing (local whisper) 120/600s, 14 segments`), throttled to once a
+  second or every 2%. Background watch jobs map it to the `transcribe` stage
+  and move between the OCR and transcribe progress values, and a job cancel
+  now lands mid-transcription instead of after it.
 
 ### Index and retrieval
 
