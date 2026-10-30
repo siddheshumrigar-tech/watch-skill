@@ -161,6 +161,7 @@ pass `--cheap-model` / `--strong-model` rather than waiting for a release.
 | `WATCHSKILL_RETRIEVAL_OCR_DEDUP_ENABLED` | bool | `true` | Collapse runs of near-identical OCR from one persistent on-screen text into a single representative before evidence is selected. Off, a static caption read on a dozen adjacent frames competes for a dozen top-K slots and crowds out transcript. |
 | `WATCHSKILL_RETRIEVAL_OCR_DEDUP_WINDOW_SECONDS` | float | `10.0` | Gap tolerance when chaining OCR readings into one occurrence. Consecutive readings closer than this continue the same run, so a caption held for a minute is one cluster while the same text recurring later stays separate. |
 | `WATCHSKILL_RETRIEVAL_OCR_DEDUP_SIMILARITY` | float | `0.88` | How alike two normalized OCR reads must be to count as the same text. Below 1.0 so recognition noise (`decislon` for `decision`) clusters; high enough that different nearby captions stay distinct. |
+| `WATCHSKILL_RETRIEVAL_RRF_K` | int | `60` | Reciprocal-rank fusion constant. Hits are ordered by `sum(1 / (k + rank))` over the keyword and vector lists; higher values flatten the advantage of rank 1. Ordering only: each hit's `score` stays the calibrated relevance the answer confidence reads, and hits also report `rrf_score`, `fts_rank` and `vector_rank`. |
 | `WATCHSKILL_ANSWER_CONFIDENCE_FLOOR` | float | `0.35` | Below this after the full escalation ladder, the answer states plainly that the video does not clearly show it (the honest floor). |
 | `WATCHSKILL_ANSWER_CONFIDENCE_TARGET` | float | `0.6` | Escalation stops as soon as confidence clears this bar. |
 | `WATCHSKILL_ANSWER_VERIFY_ENABLED` | bool | `true` | When a vision provider is configured, show the model the exact frames it is about to cite and require confirmation before answering. Degrades gracefully (model-free answers) when no provider is reachable. |
@@ -238,6 +239,7 @@ Ask an already-indexed video a question (self-healing answer engine).
 | `--frames` | flag | off | Always list evidence frame paths (default: only when the engine is uncertain). |
 | `--no-verify` | flag | off | Skip the model verify pass. |
 | `--no-cache` | flag | off | Bypass the semantic answer cache. |
+| `--speaker` | str | none | Answer only from what one diarized speaker said (`SPEAKER_01`). Needs a video watched with `--diarize`; bypasses the answer cache. |
 
 ### `watch-skill serve`
 
@@ -284,7 +286,11 @@ List indexed videos (`id  duration  title`). No flags.
 ### `watch-skill search QUERY`
 
 Hybrid keyword + semantic search across every indexed video; prints
-timestamped hits grouped by video. No flags.
+timestamped hits grouped by video, as `SPEAKER_00: text` when diarized.
+
+| Flag | Type | Default | Effect |
+|---|---|---|---|
+| `--speaker` | str | none | Keep only transcript lines from this diarized speaker. |
 
 ### `watch-skill capture TARGET`
 

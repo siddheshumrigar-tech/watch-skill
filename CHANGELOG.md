@@ -32,6 +32,11 @@
   segments carry `speaker`. An undiarized video returns `index.not_diarized`;
   an unknown label returns `index.unknown_speaker` with the known labels. A
   speaker-filtered ask never reads or writes the answer cache.
+- Hybrid search orders hits by reciprocal-rank fusion
+  (`WATCHSKILL_RETRIEVAL_RRF_K`, default 60) instead of a summed score in
+  which every keyword hit scored 1.0. `score` keeps its calibrated meaning;
+  hits also carry `rrf_score`, `fts_rank` and `vector_rank`. Cached answers
+  from the old ranking are no longer served.
 
 ## DeepWatch v0.1.2 — 2026-09-08
 

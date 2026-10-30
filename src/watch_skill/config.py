@@ -243,6 +243,14 @@ class Settings(BaseSettings):
         "'decision') clusters, high enough that different nearby captions "
         "stay distinct.",
     )
+    retrieval_rrf_k: int = Field(
+        default=60,
+        ge=1,
+        description="Reciprocal-rank fusion constant: a hit's rank score is "
+        "the sum of 1/(k + rank) over the keyword and vector lists. Higher "
+        "flattens the advantage of rank 1; 60 is the value from the original "
+        "RRF paper. Ordering only — Hit.score keeps the calibrated relevance.",
+    )
 
     # --- self-healing answers (v0.6) ----------------------------------------
     answer_confidence_floor: float = Field(

@@ -1,0 +1,58 @@
+{
+  "_comment": "Synthetic retrieval regression set. Three videos of transcript segments and OCR; each case names the hit that must come back. baseline_mrr is the MRR measured when reciprocal-rank fusion landed; a change that lowers it is a ranking regression.",
+  "baseline_mrr": 0.9375,
+  "videos": [
+    {
+      "id": "rv00000000000001",
+      "title": "Quarterly billing review",
+      "segments": [
+        [0.0, 5.0, "welcome everyone to the quarterly billing review"],
+        [5.0, 10.0, "the invoice total for march was wrong by forty dollars"],
+        [10.0, 15.0, "finance will reissue the corrected statement on friday"],
+        [15.0, 20.0, "next we look at the travel budget for the summer offsite"],
+        [20.0, 25.0, "the offsite hotel costs more than last year"]
+      ],
+      "ocr": [
+        [6.0, "INVOICE #4471 TOTAL 1,240.00"],
+        [7.0, "INVOICE #4471 TOTAL 1,240.00"],
+        [16.0, "Travel budget Q3"]
+      ]
+    },
+    {
+      "id": "rv00000000000002",
+      "title": "Deploy retro",
+      "segments": [
+        [0.0, 4.0, "the deploy on tuesday failed at the database migration step"],
+        [4.0, 8.0, "we rolled back within ten minutes"],
+        [8.0, 12.0, "root cause was a missing index on the orders table"],
+        [12.0, 16.0, "action item add a migration dry run to the pipeline"]
+      ],
+      "ocr": [
+        [2.0, "ERROR: migration 0042 timed out"],
+        [9.0, "CREATE INDEX idx_orders_customer"]
+      ]
+    },
+    {
+      "id": "rv00000000000003",
+      "title": "Kitchen tour",
+      "segments": [
+        [0.0, 6.0, "this is the new espresso machine on the counter"],
+        [6.0, 12.0, "the grinder sits next to it on the left"],
+        [12.0, 18.0, "we keep the oat milk in the small fridge"]
+      ],
+      "ocr": [
+        [3.0, "Descale every 200 shots"]
+      ]
+    }
+  ],
+  "cases": [
+    {"query": "invoice total march", "video": "rv00000000000001", "kind": "segment", "contains": "invoice total for march"},
+    {"query": "corrected statement friday", "video": "rv00000000000001", "kind": "segment", "contains": "reissue the corrected statement"},
+    {"query": "offsite hotel costs", "video": "rv00000000000001", "kind": "segment", "contains": "offsite hotel"},
+    {"query": "migration timed out", "video": "rv00000000000002", "kind": "ocr", "contains": "timed out"},
+    {"query": "missing index orders table", "video": "rv00000000000002", "kind": "segment", "contains": "missing index"},
+    {"query": "rolled back minutes", "video": "rv00000000000002", "kind": "segment", "contains": "rolled back"},
+    {"query": "descale shots", "video": "rv00000000000003", "kind": "ocr", "contains": "Descale"},
+    {"query": "oat milk fridge", "video": "rv00000000000003", "kind": "segment", "contains": "oat milk"}
+  ]
+}

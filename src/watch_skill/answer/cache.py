@@ -27,7 +27,7 @@ from watch_skill.index.textnorm import normalize_for_search
 # any other value are ignored on lookup, so an algorithm change can never keep
 # serving the numbers the previous algorithm produced. Rows predating the
 # stamp hold NULL and are ignored for the same reason.
-ANSWER_SCHEMA = "2026-08-25/deadline+ocr-dedup"
+ANSWER_SCHEMA = "2026-10-31/rrf+speaker"
 
 
 def lookup(video_id: str, question: str) -> Answer | None:

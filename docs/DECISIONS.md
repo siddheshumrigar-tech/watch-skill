@@ -693,3 +693,35 @@ The strongest OCR hit still ranks second overall, above four transcript
 segments. Confidence rose because evidence agreement across modalities went up,
 not because any threshold moved — the lexical-anchor cap and the honest floor
 are untouched.
+
+### Hybrid hits are ordered by reciprocal rank, scored by relevance (2026-10-31)
+
+`hybrid_search` summed `0.45 * keyword + 0.55 * cosine`. The keyword half was
+`1 / (1 + max(0, bm25))`, and SQLite's `bm25()` is negative for every match, so
+every keyword hit scored exactly 1.0. The sum therefore ordered keyword hits by
+cosine alone and let one high-cosine vector hit that no keyword matched beat a
+segment both retrievers placed second.
+
+Ordering now uses reciprocal-rank fusion: `rrf = sum(1 / (k + rank))` over the
+1-based keyword (bm25 order) and vector (cosine order) lists, with
+`WATCHSKILL_RETRIEVAL_RRF_K` defaulting to 60. Ties break on the weighted
+relevance, then on kind and row id, so the order is deterministic.
+
+`Hit.score` deliberately keeps the old weighted relevance. `answer/confidence.py`
+is calibrated on that scale (`_TOP_SCORE_CEILING = 0.9`,
+`_MARGIN_CEILING = 0.25`), and RRF values sit near 0.03, so writing them into
+`score` would have pushed every answer under the honest floor. The fused
+value is reported separately as `rrf_score`, with `fts_rank` and
+`vector_rank`. OCR duplicate collapse still runs over the whole candidate pool
+before the top-k cut. The answer cache schema stamp moved, so answers ranked
+the old way are not served again.
+
+`tests/index/fixtures/retrieval_cases.json` holds a synthetic regression set
+(three videos, eight queries) run with a deterministic hashed bag-of-words
+embedder. Measured with that embedder:
+
+| | summed score | RRF |
+|---|---|---|
+| recall@3 | 1.0 | 1.0 |
+| MRR | 0.938 | 0.938 (recorded as `baseline_mrr`) |
+| agreement-vs-outlier case, top hit | the outlier | the agreed answer |

@@ -37,6 +37,12 @@ class Hit:
     # Diarized speaker of a transcript-segment hit; None for OCR/scene hits
     # and for videos that were never diarized.
     speaker: str | None = None
+    # Reciprocal-rank fusion: what ORDERS hits. `score` above stays the
+    # calibrated 0.45/0.55 weighted relevance the confidence model reads; RRF
+    # values (~0.03) on that scale would break every confidence decision.
+    rrf_score: float = 0.0
+    fts_rank: int | None = None  # 1-based position in the keyword list
+    vector_rank: int | None = None  # 1-based position in the vector list
 
 
 @dataclass
@@ -409,26 +415,42 @@ def checked_speaker(video_id: str | None, speaker: str | None) -> str | None:
 def hybrid_search(
     query: str, video_id: str | None = None, k: int = 8, speaker: str | None = None
 ) -> list[Hit]:
-    """Merge keyword (FTS5 bm25) and vector (cosine) hits, best-of-both scoring.
+    """Fuse keyword (FTS5 bm25) and vector (cosine) hits by reciprocal rank.
+
+    Ordering is ``rrf = sum(1 / (retrieval_rrf_k + rank))`` over the two
+    lists, ties broken by the weighted relevance and then by identity so the
+    order is deterministic. ``Hit.score`` keeps the 0.45/0.55 weighted
+    relevance, which is what answer confidence is calibrated on.
 
     ``speaker`` keeps only transcript segments spoken by that diarized label
     (case-insensitive); it is not validated here — callers that take it from
     an agent go through :func:`require_speaker` first.
     """
+    from watch_skill.config import get_settings
+
+    rrf_k = get_settings().retrieval_rrf_k
     conn = connect()
     try:
         merged: dict[tuple[str, str, int], Hit] = {}
-        for weight, hits in ((0.45, _fts_hits(conn, query, video_id, speaker)),
-                             (0.55, _vector_hits(conn, query, video_id, speaker))):
-            for hit in hits:
+        for source, weight, hits in (
+            ("fts", 0.45, _fts_hits(conn, query, video_id, speaker)),
+            ("vector", 0.55, _vector_hits(conn, query, video_id, speaker)),
+        ):
+            for rank, hit in enumerate(hits, start=1):
                 key = (hit.video_id, hit.kind, hit.ref_id)
                 weighted = hit.score * weight
-                if key in merged:
-                    merged[key].score += weighted
+                target = merged.get(key)
+                if target is None:
+                    hit.score, hit.rrf_score = weighted, 0.0
+                    merged[key] = target = hit
                 else:
-                    hit.score = weighted
-                    merged[key] = hit
-        ranked = sorted(merged.values(), key=lambda h: h.score, reverse=True)
+                    target.score += weighted
+                target.rrf_score += 1.0 / (rrf_k + rank)
+                setattr(target, f"{source}_rank", rank)
+        ranked = sorted(
+            merged.values(),
+            key=lambda h: (-h.rrf_score, -h.score, h.kind, int(h.ref_id), h.video_id),
+        )
         # Collapse BEFORE the cut, over the whole candidate pool. Doing it
         # after would dedup a top-k that redundancy had already filled, which
         # is the bug wearing a smaller hat.
