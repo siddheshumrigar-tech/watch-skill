@@ -178,7 +178,10 @@ def watch(
     if do_diarize and transcript and acq.video_path is not None:
         from watch_skill.transcribe.diarize import diarize_transcript
 
-        transcript = diarize_transcript(transcript, acq.video_path, work_dir)
+        transcript = diarize_transcript(
+            transcript, acq.video_path, work_dir,
+            start_seconds=start_seconds, end_seconds=end_seconds,
+        )
 
     return WatchResult(
         acquisition=acq,

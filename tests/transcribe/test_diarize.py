@@ -1,8 +1,12 @@
 """Diarization: pure speaker-assignment logic + structured degradation."""
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from watch_skill.transcribe.diarize import SpeakerTurn, assign_speakers
-from watch_skill.transcribe.types import Segment, Transcript
+from watch_skill.transcribe.types import Segment, Transcript, Word
 
 
 def _transcript() -> Transcript:
@@ -104,3 +108,147 @@ def test_diarize_transcript_degrades_without_backend(tmp_path) -> None:
     result = diarize_transcript(original, video, tmp_path)
     assert [s.text for s in result.segments] == [s.text for s in original.segments]
     assert all(s.speaker is None for s in result.segments)
+
+
+def _worded_transcript() -> Transcript:
+    return Transcript(
+        segments=[
+            Segment(
+                0.0, 8.0, "hello there yes hi",
+                words=[
+                    Word(0.0, 1.0, "hello"),
+                    Word(1.0, 2.0, "there"),
+                    Word(5.0, 6.0, "yes"),
+                    Word(6.0, 7.5, "hi"),
+                ],
+            ),
+        ],
+        source="whisper-local (tiny)",
+    )
+
+
+def test_assign_speakers_keeps_words() -> None:
+    """Regression (A2): diarizing used to rebuild every Segment without its
+    words, so --diarize --word-timestamps silently lost word timings."""
+    labeled = assign_speakers(_worded_transcript(), [SpeakerTurn(0.0, 9.0, "SPEAKER_00")])
+    assert [w.text for w in labeled.segments[0].words] == ["hello", "there", "yes", "hi"]
+    assert [(w.start, w.end) for w in labeled.segments[0].words] == [
+        (0.0, 1.0), (1.0, 2.0), (5.0, 6.0), (6.0, 7.5),
+    ]
+
+
+def test_assign_speakers_labels_each_word_across_a_turn_change() -> None:
+    """A segment spanning a speaker change: the segment keeps its dominant
+    speaker and every word carries the speaker actually talking over it."""
+    turns = [SpeakerTurn(0.0, 3.0, "SPEAKER_00"), SpeakerTurn(3.0, 9.0, "SPEAKER_01")]
+    seg = assign_speakers(_worded_transcript(), turns).segments[0]
+    assert seg.speaker == "SPEAKER_01"  # 5 s of overlap beats 3 s
+    assert [w.speaker for w in seg.words] == [
+        "SPEAKER_00", "SPEAKER_00", "SPEAKER_01", "SPEAKER_01",
+    ]
+    assert seg.to_dict()["words"][0]["speaker"] == "SPEAKER_00"
+
+
+def test_word_to_dict_omits_unset_speaker() -> None:
+    assert "speaker" not in Word(0.0, 1.0, "hi").to_dict()
+    assert Word(0.0, 1.0, "hi", speaker="SPEAKER_02").to_dict()["speaker"] == "SPEAKER_02"
+
+
+def test_offset_carries_word_speaker() -> None:
+    shifted = Transcript(
+        segments=[Segment(0.0, 1.0, "hi", words=[Word(0.0, 1.0, "hi", speaker="SPEAKER_00")])],
+    ).offset(10.0)
+    assert shifted.segments[0].words[0].speaker == "SPEAKER_00"
+    assert shifted.segments[0].words[0].start == 10.0
+
+
+def test_focused_diarization_lands_on_the_source_timeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (A1): focused mode diarized ``work_dir/audio.mp3`` -- the
+    window the local rung extracted -- and laid its window-relative turns on
+    source-timeline segments, so every label landed on the wrong segment (or
+    none). Diarization must extract the same window itself and shift turns."""
+    from watch_skill.transcribe import audio as audio_mod
+    from watch_skill.transcribe import diarize as mod
+
+    work_dir = tmp_path / "work dir"
+    work_dir.mkdir()
+    (work_dir / "audio.mp3").write_bytes(b"stale window audio")  # must not be reused
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"fake")
+    extracted: list[dict] = []
+
+    def fake_extract(video_path, dest, start_seconds=None, end_seconds=None, **kw):
+        extracted.append(
+            {"dest": Path(dest), "start_seconds": start_seconds, "end_seconds": end_seconds}
+        )
+        Path(dest).write_bytes(b"window audio")
+        return Path(dest)
+
+    diarized: list[Path] = []
+
+    def fake_diarize(audio_path, hf_token=None):
+        diarized.append(Path(audio_path))
+        return [SpeakerTurn(0.0, 4.0, "SPEAKER_00"), SpeakerTurn(4.0, 8.0, "SPEAKER_01")]
+
+    monkeypatch.setattr(audio_mod, "extract_audio", fake_extract)
+    monkeypatch.setattr(mod, "diarize_audio", fake_diarize)
+
+    transcript = Transcript(
+        segments=[Segment(100.0, 104.0, "first"), Segment(104.0, 108.0, "second")],
+        source="whisper-local (tiny)",
+    )
+    labeled = mod.diarize_transcript(
+        transcript, video, work_dir, start_seconds=100.0, end_seconds=110.0
+    )
+    assert [s.speaker for s in labeled.segments] == ["SPEAKER_00", "SPEAKER_01"]
+    assert extracted == [
+        {"dest": work_dir / "diarize-audio.mp3", "start_seconds": 100.0, "end_seconds": 110.0}
+    ]
+    assert diarized == [work_dir / "diarize-audio.mp3"]
+
+
+def test_watch_forwards_the_window_to_diarization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """watch() must hand its window to diarize_transcript, or the turns can
+    never be shifted back onto the source timeline."""
+    import watch_skill.watch as watch_mod
+    from watch_skill.acquire import AcquireResult
+    from watch_skill.acquire.sources import SourceKind
+    from watch_skill.perceive.types import VideoMetadata
+    from watch_skill.transcribe import diarize as diarize_mod
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"fake")
+    monkeypatch.setattr(
+        watch_mod, "acquire",
+        lambda source, **kw: AcquireResult(
+            source=source, kind=SourceKind.LOCAL_FILE, video_path=video, acquirer="local"
+        ),
+    )
+    monkeypatch.setattr(
+        watch_mod, "probe",
+        lambda path: VideoMetadata(
+            duration_seconds=200.0, width=None, height=None, fps=None, codec=None,
+            has_audio=True,
+        ),
+    )
+    monkeypatch.setattr(watch_mod, "discover_cues", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        watch_mod, "get_transcript",
+        lambda *a, **kw: Transcript(segments=[Segment(100.0, 104.0, "hi")], source="captions"),
+    )
+    seen: dict = {}
+
+    def fake_diarize_transcript(transcript, video_path, work_dir, **kwargs):
+        seen.update(kwargs)
+        return transcript
+
+    monkeypatch.setattr(diarize_mod, "diarize_transcript", fake_diarize_transcript)
+    watch_mod.watch(
+        str(video), start_seconds=100.0, end_seconds=110.0, transcript_only=True,
+        diarize=True, out_dir=tmp_path / "work dir",
+    )
+    assert seen == {"start_seconds": 100.0, "end_seconds": 110.0}

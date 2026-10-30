@@ -16,9 +16,15 @@ class Word:
     start: float
     end: float
     text: str
+    # Set by diarization: the speaker talking over this word, which can differ
+    # from the segment's dominant speaker when a segment spans a turn change.
+    speaker: str | None = None
 
     def to_dict(self) -> dict:
-        return {"start": self.start, "end": self.end, "text": self.text}
+        out = {"start": self.start, "end": self.end, "text": self.text}
+        if self.speaker is not None:
+            out["speaker"] = self.speaker
+        return out
 
 
 @dataclass
@@ -86,7 +92,10 @@ class Transcript:
                     s.speaker,
                     # shift the words too, or they point at the window's
                     # timeline while the segment points at the source's
-                    [Word(w.start + seconds, w.end + seconds, w.text) for w in s.words],
+                    [
+                        Word(w.start + seconds, w.end + seconds, w.text, w.speaker)
+                        for w in s.words
+                    ],
                 )
                 for s in self.segments
             ],
