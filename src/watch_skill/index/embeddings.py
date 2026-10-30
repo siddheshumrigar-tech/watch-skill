@@ -12,16 +12,45 @@ from __future__ import annotations
 
 import struct
 import sys
+import threading
+import time
 
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 _models: dict[str, object] = {}
 _unavailable = False
+# One lock for build and release: concurrent first calls must construct one
+# model, and a release must never interleave with a build.
+_lock = threading.Lock()
+_last_used: float | None = None  # time.monotonic() of the last embed/load
+_reaper: threading.Thread | None = None
+
+
+def _touch() -> None:
+    global _last_used
+    _last_used = time.monotonic()
 
 
 def _get_model(name: str):
+    model = _models.get(name)
+    if model is not None or _unavailable:
+        if model is not None:
+            _touch()
+        return model
+    with _lock:
+        model = _models.get(name)
+        if model is None and not _unavailable:
+            _build_model(name)
+            model = _models.get(name)
+            if model is not None:
+                _start_reaper()
+    if model is not None:
+        _touch()
+    return model
+
+
+def _build_model(name: str) -> None:
+    """Construct one model into ``_models``. Caller holds ``_lock``."""
     global _unavailable
-    if name in _models or _unavailable:
-        return _models.get(name)
     try:
         import warnings  # noqa: PLC0415
 
@@ -52,7 +81,77 @@ def _get_model(name: str):
             f"{exc}) — falling back to keyword-only search",
             file=sys.stderr,
         )
-    return _models.get(name)
+
+
+def _idle_seconds() -> float:
+    from watch_skill.config import get_settings  # noqa: PLC0415
+
+    return float(get_settings().embedding_idle_seconds)
+
+
+def _start_reaper() -> None:
+    """Start the idle reaper once, on the first load. Caller holds ``_lock``."""
+    global _reaper
+    if _reaper is not None and _reaper.is_alive():
+        return
+    _reaper = threading.Thread(target=_reap_forever, name="ws-embedding-reaper", daemon=True)
+    _reaper.start()
+
+
+def _reap_forever() -> None:
+    while True:
+        idle = _idle_seconds()
+        time.sleep(min(30.0, idle / 2) if idle > 0 else 30.0)
+        try:
+            release_if_idle()
+        except Exception:  # noqa: BLE001 - the reaper must never die loudly
+            pass
+
+
+def release_if_idle(now: float | None = None) -> int:
+    """Release loaded models unused for ``embedding_idle_seconds``.
+
+    Returns how many were released. ``0`` disables the release. The next
+    embed reloads the model, paying the load once more rather than holding a
+    few hundred MB for a server that may not search again for hours.
+    """
+    idle = _idle_seconds()
+    if idle <= 0:
+        return 0
+    now = time.monotonic() if now is None else now
+    with _lock:
+        if not _models or _last_used is None or now - _last_used < idle:
+            return 0
+        count = len(_models)
+        _models.clear()
+    print(f"[watch-skill] embedding model released after {idle:.0f}s idle", file=sys.stderr)
+    return count
+
+
+def last_used() -> float | None:
+    """``time.monotonic()`` of the last embed or load, or None."""
+    return _last_used
+
+
+def loaded_models() -> list[str]:
+    """Names of the embedding models currently in memory."""
+    return sorted(_models)
+
+
+def import_native_stack() -> bool:
+    """Import fastembed, numpy and onnxruntime on the calling thread.
+
+    Builds no model. The import is what deadlocks on a worker thread; the
+    model itself loads on first use, wherever that happens. Returns whether
+    the stack is importable.
+    """
+    try:
+        import numpy  # noqa: F401, PLC0415
+        import onnxruntime  # noqa: F401, PLC0415
+        from fastembed import TextEmbedding  # noqa: F401, PLC0415
+    except ImportError:
+        return False
+    return True
 
 
 def warm_native_imports() -> None:
@@ -76,45 +175,18 @@ def warm_native_imports() -> None:
     same shape and one of them warmed. It lives here now so a third cannot be
     written without it.
 
-    Best-effort by design: :func:`warm_up` degrades to keyword-only search on a
-    box where fastembed is missing or unloadable, and serving must start either
-    way.
+    Only the imports are warmed. The model is built on first use (and the
+    stack is per process, not per model, so an index pinned to an older
+    model needs nothing extra here), and released again after
+    ``embedding_idle_seconds`` without use.
+
+    Best-effort by design: a box where fastembed is missing or unloadable
+    degrades to keyword-only search, and serving must start either way.
     """
     try:
-        from watch_skill.index.db import connect, get_meta  # noqa: PLC0415
-
-        warm_up()
-        # Retrieval embeds with the model recorded in the index, not the
-        # current default, so an index built by an older release pulls a
-        # second model in -- lazily, on a worker thread, which is the exact
-        # deadlock this function exists to prevent. Warm that one too.
-        conn = connect()
-        try:
-            recorded = get_meta(conn, "embedding_model")
-        finally:
-            conn.close()
-        if recorded and recorded != MODEL_NAME:
-            warm_up(recorded)
+        import_native_stack()
     except Exception as exc:  # noqa: BLE001 - never block serving on a warmup
         print(f"[watch-skill] embedding warmup skipped ({exc})", file=sys.stderr)
-
-
-def warm_up(model_name: str | None = None) -> bool:
-    """Load the embedding stack on the CALLING thread. Returns availability.
-
-    Import this chain — fastembed, then numpy's and onnxruntime's native
-    extensions — on a long-lived server's main thread, before any request can
-    reach it. Every call site is otherwise lazy, so in the stdio MCP server the
-    first import lands inside a FastMCP worker thread, where loading the numpy
-    C extension deadlocks: the thread parks in ``create_module`` and never
-    returns. Two consecutive faulthandler dumps 35s apart showed the identical
-    frame, and the tools that need vectors (``search_videos``, ``ask_video``)
-    hung forever while ``list_videos``, which never embeds, stayed instant.
-
-    Warming costs a few seconds of startup once and is best-effort: a box
-    without fastembed degrades to keyword-only search exactly as before.
-    """
-    return _get_model(model_name or MODEL_NAME) is not None
 
 
 def embed_texts(texts: list[str], model_name: str | None = None) -> list[list[float]] | None:

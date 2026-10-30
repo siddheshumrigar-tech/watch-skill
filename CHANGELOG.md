@@ -37,6 +37,11 @@
   which every keyword hit scored 1.0. `score` keeps its calibrated meaning;
   hits also carry `rrf_score`, `fts_rank` and `vector_rank`. Cached answers
   from the old ranking are no longer served.
+- The MCP server and the Bridge no longer build the embedding model at
+  startup; they only import the native stack on the main thread. The model
+  loads once on first use (single construction under concurrent first calls)
+  and is released after `WATCHSKILL_EMBEDDING_IDLE_SECONDS` (default 300,
+  `0` = never) without use.
 
 ## DeepWatch v0.1.2 — 2026-09-08
 
