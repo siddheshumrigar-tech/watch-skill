@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     whisper_model: str = Field(
         default="auto", description="faster-whisper model size, or 'auto' by RAM/VRAM."
     )
+    whisper_language: str | None = Field(
+        default=None,
+        description="Spoken language to force (ISO 639-1 code such as 'en'); "
+        "unset auto-detects. A per-call language wins.",
+    )
     cloud_stt_enabled: bool = Field(
         default=False,
         description="OPT-IN: allow sending extracted audio to a cloud STT API. "

@@ -41,9 +41,15 @@ then local whisper), and indexes everything. For follow-ups call
 | `start` / `end` | str | — | Zoom into a section with denser sampling |
 | `budget` | int | config | Frame-count cap for this call |
 | `background` | bool | `false` | Return a `job_id` instantly; poll `get_status` (use for long videos or strict client timeouts) |
+| `language` | str | auto-detect | Force the spoken language as an ISO 639-1 code (`en`, `es`, `ar`). An unknown code fails before any download with `transcribe.bad_language` |
 
 Returns a markdown report (metadata, frame selection, OCR, transcript)
-prefixed with the `video_id`, plus key frames as images.
+prefixed with the `video_id`, plus key frames as images. The transcript
+line names the language and where it came from, for example
+`_Source: whisper-local (small) · language: es (p=0.97, detected)._`;
+`forced` means you passed it, and `captions` means it was read from the
+subtitle file. `POST /v1/watch` takes the same `language` field and returns
+`transcript_language` and `transcript_language_probability`.
 
 ### `get_status`
 

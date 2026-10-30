@@ -7,6 +7,7 @@ fenced timestamped transcript. Agents already know how to consume this.
 from __future__ import annotations
 
 from watch_skill.perceive.budget import format_time
+from watch_skill.transcribe.types import Transcript
 from watch_skill.watch import WatchResult
 
 LONG_VIDEO_WARN_SECONDS = 600
@@ -69,11 +70,22 @@ def _frames_lines(result: WatchResult) -> list[str]:
     return lines
 
 
+def _language_note(transcript: Transcript) -> str:
+    """`` · language: es (p=0.97, detected)``, or nothing when unknown."""
+    if not transcript.language:
+        return ""
+    how = [transcript.language_source] if transcript.language_source else []
+    if transcript.language_probability is not None:
+        how.insert(0, f"p={transcript.language_probability:.2f}")
+    detail = f" ({', '.join(how)})" if how else ""
+    return f" · language: {transcript.language}{detail}"
+
+
 def _transcript_lines(result: WatchResult) -> list[str]:
     lines = ["", "## Transcript", ""]
     transcript = result.transcript
     if transcript:
-        lines.append(f"_Source: {transcript.source}._")
+        lines.append(f"_Source: {transcript.source}{_language_note(transcript)}._")
         lines.append("")
         lines.append("```")
         lines.append(transcript.formatted())

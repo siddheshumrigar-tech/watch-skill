@@ -17,6 +17,7 @@ from watch_skill.perceive import PerceptionResult, perceive, probe
 from watch_skill.perceive.cues import discover_cues
 from watch_skill.perceive.types import VideoMetadata
 from watch_skill.transcribe import Transcript, get_transcript
+from watch_skill.transcribe.languages import validate_language
 
 
 @dataclass
@@ -91,15 +92,24 @@ def watch(
     out_dir: Path | None = None,
     use_cache: bool = True,
     on_progress: Callable[[str, float], None] | None = None,
+    language: str | None = None,
 ) -> WatchResult:
     """Analyze any video source; returns frames + transcript + metadata.
 
     ``transcript_only`` skips media download entirely when captions exist
     (reference-proven fast path). ``cue_timestamps`` pins frames at given
     absolute times. ``duration_cap`` bounds live-stream capture.
+    ``language`` forces the spoken language (ISO 639-1 code or English
+    name); omitted, whisper detects it and the transcript reports it.
     """
-    # Cheap argument checks first: a bad budget should not cost a download.
+    # Cheap argument checks first: a bad budget or language should not cost
+    # a download.
     _validate_budget(max_frames)
+    language = validate_language(language)
+    if language is None:
+        from watch_skill.config import get_settings
+
+        validate_language(get_settings().whisper_language)  # a bad setting fails here too
 
     work_dir = Path(out_dir).resolve() if out_dir else Path(tempfile.mkdtemp(prefix="watch-skill-"))
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -168,6 +178,7 @@ def watch(
         start_seconds=start_seconds,
         end_seconds=end_seconds,
         word_timestamps=word_timestamps,
+        language=language,
     )
     if start_seconds is not None or end_seconds is not None:
         transcript = transcript.filter_range(start_seconds, end_seconds)

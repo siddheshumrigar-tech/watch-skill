@@ -73,6 +73,7 @@ def _run_watch(
     end: str | None,
     budget: int | None,
     progress_cb,
+    language: str | None = None,
 ) -> tuple[str, Any]:
     """The synchronous watch+index pipeline shared by both watch paths."""
     from watch_skill.index import index_watch_result
@@ -84,6 +85,7 @@ def _run_watch(
         end_seconds=parse_time(end),
         max_frames=budget,
         on_progress=progress_cb,
+        language=language,
     )
     progress_cb("indexing (search + embeddings + scene descriptions)", 0.9)
     video_id = index_watch_result(result)
@@ -124,6 +126,7 @@ async def watch_video(
     end: str | None = None,
     budget: int | None = None,
     background: bool = False,
+    language: str | None = None,
     ctx: Context | None = None,
 ) -> list[Any]:
     """FIRST LOOK at any video — use when given a video you have NOT analyzed
@@ -133,17 +136,27 @@ async def watch_video(
     whisper), and INDEXES everything. Returns a report + key frames as
     images. For follow-ups about the same video call ask_video — never
     re-watch. start/end (SS, MM:SS, HH:MM:SS) zoom into a section with denser
-    sampling; budget caps frame count. Long video or strict client timeout?
-    Pass background=true for an instant job_id, then poll get_status."""
+    sampling; budget caps frame count. language forces the spoken language
+    as an ISO 639-1 code ('en', 'es', 'ar'); omit it to auto-detect — the
+    report's transcript line names the language used and whether it was
+    detected (with probability), forced, or read from captions. An unknown
+    code fails at once with transcribe.bad_language. Long video or strict
+    client timeout? Pass background=true for an instant job_id, then poll
+    get_status."""
     from watch_skill import jobs
 
     if background:
         # Durable: the id outlives this process, so a client that reconnects
-        # after a restart can still collect the result.
+        # after a restart can still collect the result. The language joins
+        # the key only when set, so an auto-detect job keeps its old key.
+        key = f"watch:{source}:{start}:{end}:{budget}"
+        if language:
+            key += f":{language}"
         durable = jobs.submit_and_run(
             "watch",
-            {"source": source, "start": start, "end": end, "budget": budget},
-            idempotency_key=f"watch:{source}:{start}:{end}:{budget}",
+            {"source": source, "start": start, "end": end, "budget": budget,
+             "language": language},
+            idempotency_key=key,
         )
         return [
             f"started background watch: job_id `{durable.job_id}`\n"
@@ -154,7 +167,7 @@ async def watch_video(
 
     job = jobs.start_job(
         "watch",
-        lambda progress: _run_watch(source, start, end, budget, progress),
+        lambda progress: _run_watch(source, start, end, budget, progress, language),
     )
     while job.status == "running":
         if ctx is not None:

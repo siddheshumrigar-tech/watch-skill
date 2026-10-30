@@ -127,6 +127,12 @@ def watch(
         "than a segment that may run for ten seconds. Costs extra decoding "
         "time and only applies to the local-whisper rung.",
     ),
+    language: str | None = typer.Option(
+        None,
+        "--language",
+        help="Spoken language as an ISO 639-1 code (en, es, ar…). Omit to "
+        "auto-detect; the report names the language either way.",
+    ),
     duration: float | None = typer.Option(
         None, "--duration", help="Bound live-stream capture to N seconds."
     ),
@@ -192,6 +198,7 @@ def watch(
             whisper_model=whisper_model,
             diarize=True if diarize else None,
             word_timestamps=word_timestamps,
+            language=language,
             duration_cap=duration,
             out_dir=Path(out_dir) if out_dir else None,
             use_cache=not no_cache,

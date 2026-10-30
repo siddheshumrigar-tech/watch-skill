@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Transcription
+
+- Diarization in focused mode (`start_seconds` / `end_seconds`) now labels
+  speakers on the source timeline. It extracts its own window audio and no
+  longer reuses `audio.mp3`. Word timings survive speaker assignment, and each
+  word carries its own `speaker`.
+- Transcripts keep the spoken language: `language`, `language_probability` and
+  `language_source` (`detected`, `forced` or `captions`). Callers can force one
+  with `watch --language`, `watch_video(language=...)`, REST `language`, or
+  `WATCHSKILL_WHISPER_LANGUAGE`. A bad code fails before download with
+  `transcribe.bad_language`.
+- Each transcription rung that fails now leaves a `{code, message, fix}`
+  warning on the transcript instead of only a stderr line.
+
 ## DeepWatch v0.1.2 — 2026-09-08
 
 Moves with Watch Skill 1.4.1, and carries the gate work that release needed.

@@ -59,6 +59,7 @@ cases), `<data_dir>/health.jsonl` (incident log),
 | `WATCHSKILL_SUBTITLE_LANGS` | str | `en.*` | yt-dlp `--sub-langs` pattern for platform captions. The video's original-language track is fetched and preferred over auto-translations regardless of this pattern. |
 | `WATCHSKILL_LOCAL_WHISPER_ENABLED` | bool | `true` | Use local faster-whisper as the fallback when a video has no captions. |
 | `WATCHSKILL_WHISPER_MODEL` | str | `auto` | faster-whisper model size (`tiny` … `large-v3`). `auto` picks by available RAM/VRAM. |
+| `WATCHSKILL_WHISPER_LANGUAGE` | str | unset | Spoken language to force, as an ISO 639-1 code (`en`, `es`, `ar`). Unset auto-detects, and the detected language and its probability are reported. A per-call `language` / `--language` wins. |
 | `WATCHSKILL_CLOUD_STT_ENABLED` | bool | `false` | **Opt-in** cloud speech-to-text. Only extracted mono-16kHz audio may be sent, never the video file (enforced by tests). |
 | `WATCHSKILL_DIARIZATION_ENABLED` | bool | `false` | Label transcript segments by speaker. Needs the `diarize` extra (pyannote, torch) plus a Hugging Face token. |
 | `WATCHSKILL_HUGGINGFACE_TOKEN` | secret | unset | Hugging Face token for the gated pyannote diarization models. Accept the model terms on hf.co first. |
@@ -220,6 +221,7 @@ the output for the calling agent.
 | `--cloud-stt` | flag | off | Opt in to cloud STT for extracted audio, this run only. |
 | `--whisper-model` | str | config `whisper_model` (`auto`) | faster-whisper size (`tiny` … `large-v3`). |
 | `--diarize` | flag | off | Label transcript by speaker (needs the `diarize` extra + HF token). |
+| `--language` | str | config `whisper_language` (auto-detect) | Spoken language as an ISO 639-1 code (`en`, `es`, `ar`). |
 | `--duration` | float | none | Bound live-stream capture to N seconds. |
 | `--out-dir` | path | temp dir | Working directory for intermediate files. |
 | `--no-cache` | flag | off | Bypass the download cache. |

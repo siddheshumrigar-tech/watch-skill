@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from watch_skill.errors import TranscriptionError
+from watch_skill.transcribe.languages import normalize_language
 from watch_skill.transcribe.types import Segment, Transcript, Word
 
 # (min free RAM GiB, model). Whisper CT2 int8 sizes are roughly: tiny 0.1 GB,
@@ -141,7 +142,7 @@ def transcribe_local(
 
     size = pick_model_size() if model_size == "auto" else model_size
 
-    def attempt(device: str) -> list[Segment]:
+    def attempt(device: str) -> tuple[list[Segment], object]:
         """Load and run the model on one device. Raises on any failure."""
         compute = "float16" if device == "cuda" else "int8"
         print(
@@ -149,7 +150,7 @@ def transcribe_local(
             file=sys.stderr,
         )
         model = WhisperModel(size, device=device, compute_type=compute)
-        raw_segments, _info = model.transcribe(
+        raw_segments, info = model.transcribe(
             str(audio_path),
             language=language,
             vad_filter=True,
@@ -172,11 +173,11 @@ def transcribe_local(
                     words=words,
                 )
             )
-        return collected
+        return collected, info
 
     device = pick_device()
     try:
-        segments = attempt(device)
+        segments, info = attempt(device)
     except Exception as exc:
         # A visible NVIDIA GPU and a working CTranslate2 CUDA path are
         # different claims, and `has_cuda_gpu` can only check the first. On a
@@ -210,7 +211,7 @@ def transcribe_local(
             file=sys.stderr,
         )
         try:
-            segments = attempt("cpu")
+            segments, info = attempt("cpu")
         except Exception as cpu_exc:
             raise TranscriptionError(
                 f"local whisper failed on the GPU and on the processor: {cpu_exc}",
@@ -221,4 +222,21 @@ def transcribe_local(
                          "cuda_error": str(exc)},
             ) from cpu_exc
         device = "cpu"
-    return Transcript(segments=segments, source=f"whisper-local ({size})")
+    transcript = Transcript(segments=segments, source=f"whisper-local ({size})")
+    return _with_language(transcript, info, language)
+
+
+def _with_language(transcript: Transcript, info: object, forced: str | None) -> Transcript:
+    """Record the language: the caller's when forced, else what whisper detected."""
+    if forced:
+        transcript.language, transcript.language_source = forced, "forced"
+        return transcript
+    detected = getattr(info, "language", None)
+    if detected:
+        transcript.language = normalize_language(detected) or str(detected)
+        transcript.language_source = "detected"
+        probability = getattr(info, "language_probability", None)
+        transcript.language_probability = (
+            round(float(probability), 4) if probability is not None else None
+        )
+    return transcript

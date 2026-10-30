@@ -1,7 +1,7 @@
 """Transcription data types shared across the ladder."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 @dataclass
@@ -26,6 +26,11 @@ class Word:
             out["speaker"] = self.speaker
         return out
 
+    def to_public(self) -> dict:
+        """Agent-facing shape: every key present, ``null`` when unknown."""
+        return {"start": self.start, "end": self.end, "text": self.text,
+                "speaker": self.speaker}
+
 
 @dataclass
 class Segment:
@@ -46,6 +51,14 @@ class Segment:
         if self.words:
             out["words"] = [w.to_dict() for w in self.words]
         return out
+
+    def to_public(self) -> dict:
+        """Agent-facing shape: every key present (``null`` / ``[]`` when empty).
+
+        :meth:`to_dict` stays compact because the index stores it.
+        """
+        return {"start": self.start, "end": self.end, "text": self.text,
+                "speaker": self.speaker, "words": [w.to_public() for w in self.words]}
 
     def word_at(self, seconds: float) -> Word | None:
         """The word being spoken at ``seconds``, when words are available."""
@@ -71,19 +84,42 @@ class Transcript:
 
     ``source`` is one of: ``captions``, ``whisper-local (<model>)``,
     ``whisper-groq``, ``whisper-openai``, or ``none``.
+
+    ``language`` is an ISO 639-1 code (``yue``/``haw`` for the two Whisper
+    languages without one). ``language_source`` says where it came from:
+    ``detected`` (the model's guess, with ``language_probability``),
+    ``forced`` (the caller named it) or ``captions`` (the subtitle file's
+    name). ``warnings`` holds one ``{"code", "message", "fix"}`` per ladder
+    rung that failed before this transcript was produced.
     """
 
     segments: list[Segment] = field(default_factory=list)
     source: str = "none"
+    language: str | None = None
+    language_probability: float | None = None
+    language_source: str | None = None
+    warnings: list[dict] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         return bool(self.segments)
+
+    def to_public(self) -> dict:
+        """Agent-facing shape: every key present (``null`` / ``[]`` when empty)."""
+        return {
+            "source": self.source,
+            "language": self.language,
+            "language_probability": self.language_probability,
+            "language_source": self.language_source,
+            "segments": [s.to_public() for s in self.segments],
+            "warnings": [dict(w) for w in self.warnings],
+        }
 
     def offset(self, seconds: float) -> Transcript:
         """Shift all timestamps (window-extracted audio back to source time)."""
         if not seconds:
             return self
-        return Transcript(
+        return replace(
+            self,
             segments=[
                 Segment(
                     s.start + seconds,
@@ -99,7 +135,6 @@ class Transcript:
                 )
                 for s in self.segments
             ],
-            source=self.source,
         )
 
     def filter_range(self, start: float | None, end: float | None) -> Transcript:
@@ -109,7 +144,7 @@ class Transcript:
         lo = start if start is not None else float("-inf")
         hi = end if end is not None else float("inf")
         kept = [s for s in self.segments if s.end >= lo and s.start <= hi]
-        return Transcript(segments=kept, source=self.source)
+        return replace(self, segments=kept)
 
     def formatted(self) -> str:
         """`[MM:SS] text` lines (speaker-prefixed when diarized) — the agent-facing rendering."""
