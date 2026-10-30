@@ -119,12 +119,15 @@ def _insert_video(conn: sqlite3.Connection, result: WatchResult, video_id: str, 
         """
         INSERT INTO videos (id, source, title, uploader, duration_seconds, width,
                             height, transcript_source, frames_dir,
-                            asset_id, revision_id, content_digest)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            asset_id, revision_id, content_digest,
+                            transcript_language, transcript_language_probability)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title=excluded.title, uploader=excluded.uploader,
             duration_seconds=excluded.duration_seconds,
             transcript_source=excluded.transcript_source,
+            transcript_language=excluded.transcript_language,
+            transcript_language_probability=excluded.transcript_language_probability,
             frames_dir=excluded.frames_dir,
             asset_id=excluded.asset_id,
             revision_id=excluded.revision_id,
@@ -139,6 +142,7 @@ def _insert_video(conn: sqlite3.Connection, result: WatchResult, video_id: str, 
             revision.asset_id if revision else None,
             revision.revision_id if revision else None,
             revision.content_digest if revision else None,
+            result.transcript.language, result.transcript.language_probability,
         ),
     )
     # re-analysis replaces derived rows (cached answers invalidate too —
@@ -156,9 +160,9 @@ def _insert_derived(conn: sqlite3.Connection, result: WatchResult, video_id: str
 
         words = _json.dumps([w.to_dict() for w in seg.words]) if seg.words else None
         cur = conn.execute(
-            "INSERT INTO segments (video_id, start, end, text, words_json) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (video_id, seg.start, seg.end, seg.text, words),
+            "INSERT INTO segments (video_id, start, end, text, words_json, speaker) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (video_id, seg.start, seg.end, seg.text, words, seg.speaker),
         )
         to_embed.append(("segment", cur.lastrowid, seg.start, seg.text))
 

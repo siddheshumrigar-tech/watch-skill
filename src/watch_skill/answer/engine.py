@@ -37,7 +37,7 @@ from watch_skill.answer.localize import (
 from watch_skill.answer.types import Answer, Evidence, est_frame_tokens, est_text_tokens
 from watch_skill.config import get_settings
 from watch_skill.errors import IndexError_, VisionError
-from watch_skill.index.retrieval import Hit, frames_near, hybrid_search
+from watch_skill.index.retrieval import Hit, checked_speaker, frames_near, hybrid_search
 from watch_skill.index.store import get_video
 from watch_skill.perceive.budget import format_time
 
@@ -59,9 +59,17 @@ def _evidence_from_hits(hits: list[Hit]) -> list[Evidence]:
         Evidence(
             h.timestamp, h.kind, h.text, round(h.score, 4),
             duplicate_count=getattr(h, "duplicate_count", 1),
+            speaker=getattr(h, "speaker", None),
         )
         for h in hits
     ]
+
+
+def _search(question: str, video_id: str, k: int, speaker: str | None) -> list[Hit]:
+    """hybrid_search, passing ``speaker`` only when a filter was asked for."""
+    if speaker is None:
+        return hybrid_search(question, video_id=video_id, k=k)
+    return hybrid_search(question, video_id=video_id, k=k, speaker=speaker)
 
 
 def _grounded_confidence(hits: list[Hit], question: str, floor: float) -> float:
@@ -98,7 +106,8 @@ def _evidence_lines(evidence: list[Evidence], lang: str = "en") -> str:
     for e in evidence[:8]:
         stamp = format_time(e.timestamp) if e.timestamp is not None else "--:--"
         stamp = isolate(f"[{stamp}]") if rtl else f"[{stamp}]"
-        lines.append(f"- {stamp} ({e.kind}) {e.text}")
+        who = f"{e.speaker}: " if getattr(e, "speaker", None) else ""
+        lines.append(f"- {stamp} ({e.kind}) {who}{e.text}")
     return "\n".join(lines)
 
 
@@ -224,8 +233,14 @@ def answer_question(
     k: int = 8,
     allow_stale: bool = False,
     deadline_seconds: float | None = None,
+    speaker: str | None = None,
 ) -> Answer:
     """The self-healing ask: never unverified silently, never invented.
+
+    ``speaker`` answers only from what that diarized speaker said. A filtered
+    ask bypasses the answer cache in both directions: the cache is keyed on
+    (video, question), so a filtered answer must not be served for an
+    unfiltered question, or the reverse.
 
     ``deadline_seconds`` bounds the whole ask in wall-clock time (default
     ``answer_deadline_seconds``); pass ``0`` or a negative value to opt out
@@ -251,8 +266,9 @@ def answer_question(
     # Before anything is read: artifacts may only be presented as evidence
     # about a source that still holds the content they were derived from.
     freshness = require_current(video_id_or_source, allow_stale=allow_stale)
+    speaker = checked_speaker(video["id"], speaker)
 
-    if use_cache:
+    if use_cache and speaker is None:
         hit = cache.lookup(video["id"], question)
         if hit is not None:
             hit.tokens_saved_estimate += hit.tokens_spent_estimate  # repeat = free
@@ -290,7 +306,7 @@ def answer_question(
     deadline = started + window if window and window > 0 else None
     reserve = settings.answer_step_reserve_seconds
 
-    hits = hybrid_search(question, video_id=video["id"], k=k)
+    hits = _search(question, video["id"], k, speaker)
     confidence = _grounded_confidence(hits, question, floor)
     verified = False
     model_answer: str | None = None
@@ -323,7 +339,7 @@ def answer_question(
         spent += cost
         breakdown["local_escalation"] += cost
         if new_items:
-            hits = hybrid_search(question, video_id=video["id"], k=k)
+            hits = _search(question, video["id"], k, speaker)
             confidence = _grounded_confidence(hits, question, floor)
 
     evidence = _evidence_from_hits(hits)
@@ -406,7 +422,8 @@ def answer_question(
         cost_usd_estimate=round(usd_spent, 6),
         freshness=freshness.get("state"),
     )
-    cache.put(answer)
+    if speaker is None:  # D4: a filtered answer never enters the cache
+        cache.put(answer)
     cache.record_savings(answer.tokens_saved_estimate)
     cache.record_spend(breakdown, usd_spent)
     return answer

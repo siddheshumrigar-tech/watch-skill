@@ -17,6 +17,9 @@ class Evidence:
     # persistent on-screen text. Kept so a caller can say "held from 1:00 to
     # 1:03" without re-deriving it; the rendered evidence line is unchanged.
     duplicate_count: int = 1
+    # Diarized speaker of a transcript segment; None for OCR/scene evidence
+    # and for videos that were never diarized.
+    speaker: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

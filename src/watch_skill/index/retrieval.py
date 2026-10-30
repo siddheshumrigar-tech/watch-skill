@@ -34,6 +34,9 @@ class Hit:
     duplicate_count: int = 1
     duplicate_first: float | None = None
     duplicate_last: float | None = None
+    # Diarized speaker of a transcript-segment hit; None for OCR/scene hits
+    # and for videos that were never diarized.
+    speaker: str | None = None
 
 
 @dataclass
@@ -78,7 +81,28 @@ def _fts_query(text: str) -> str:
     return " OR ".join(f'text_norm:"{t}"' for t in terms)
 
 
-def _fts_hits(conn: sqlite3.Connection, query: str, video_id: str | None) -> list[Hit]:
+def _speaker_clause(speaker: str | None, video_id: str | None) -> tuple[str, list[Any]]:
+    """SQL that keeps only transcript segments spoken by ``speaker``.
+
+    Pushed into both candidate queries, so the filter shapes the candidate
+    pool instead of trimming a top-k that other speakers already filled.
+    """
+    if not speaker:
+        return "", []
+    sql = (
+        " AND kind = 'segment' AND ref_id IN "
+        "(SELECT id FROM segments WHERE speaker = ? COLLATE NOCASE"
+    )
+    params: list[Any] = [speaker]
+    if video_id:
+        sql += " AND video_id = ?"
+        params.append(video_id)
+    return sql + ")", params
+
+
+def _fts_hits(
+    conn: sqlite3.Connection, query: str, video_id: str | None, speaker: str | None = None
+) -> list[Hit]:
     sql = (
         "SELECT video_id, kind, ref_id, timestamp, text, bm25(fts) AS rank "
         "FROM fts WHERE fts MATCH ?"
@@ -87,6 +111,9 @@ def _fts_hits(conn: sqlite3.Connection, query: str, video_id: str | None) -> lis
     if video_id:
         sql += " AND video_id = ?"
         params.append(video_id)
+    clause, extra = _speaker_clause(speaker, video_id)
+    sql += clause
+    params += extra
     sql += " ORDER BY rank LIMIT ?"
     params.append(_FTS_CANDIDATES)
     hits = []
@@ -99,7 +126,9 @@ def _fts_hits(conn: sqlite3.Connection, query: str, video_id: str | None) -> lis
     return hits
 
 
-def _vector_hits(conn: sqlite3.Connection, query: str, video_id: str | None) -> list[Hit]:
+def _vector_hits(
+    conn: sqlite3.Connection, query: str, video_id: str | None, speaker: str | None = None
+) -> list[Hit]:
     from watch_skill.index.db import get_meta
 
     # the query must embed with the same model that wrote the stored vectors
@@ -108,11 +137,14 @@ def _vector_hits(conn: sqlite3.Connection, query: str, video_id: str | None) -> 
     if not query_vecs:
         return []
     query_vec = query_vecs[0]
-    sql = "SELECT video_id, kind, ref_id, timestamp, text, vector, dim FROM embeddings"
+    sql = "SELECT video_id, kind, ref_id, timestamp, text, vector, dim FROM embeddings WHERE 1=1"
     params: list[Any] = []
     if video_id:
-        sql += " WHERE video_id = ?"
+        sql += " AND video_id = ?"
         params.append(video_id)
+    clause, extra = _speaker_clause(speaker, video_id)
+    sql += clause
+    params += extra
     rows = conn.execute(sql, params).fetchall()
     if not rows:
         return []
@@ -313,13 +345,81 @@ def collapse_ocr_duplicates(
     return [h for h in hits if id(h) not in absorbed]
 
 
-def hybrid_search(query: str, video_id: str | None = None, k: int = 8) -> list[Hit]:
-    """Merge keyword (FTS5 bm25) and vector (cosine) hits, best-of-both scoring."""
+def _attach_speakers(conn: sqlite3.Connection, hits: list[Hit]) -> None:
+    """Fill ``Hit.speaker`` for segment hits, in one query."""
+    ids = [h.ref_id for h in hits if h.kind == "segment"]
+    if not ids:
+        return
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT id, speaker FROM segments WHERE id IN ({marks})", ids
+    ).fetchall()
+    speakers = {int(r["id"]): r["speaker"] for r in rows}
+    for hit in hits:
+        if hit.kind == "segment":
+            hit.speaker = speakers.get(int(hit.ref_id))
+
+
+def require_speaker(
+    conn: sqlite3.Connection, video_id: str | None, speaker: str
+) -> str:
+    """Validate a speaker filter; returns the label as stored.
+
+    A filter that silently matched nothing would read as "this speaker never
+    said that", which is a claim. So a video that was never diarized, or a
+    label it does not contain, is an error that says what to do instead.
+    """
+    sql = "SELECT DISTINCT speaker FROM segments WHERE speaker IS NOT NULL"
+    params: list[Any] = []
+    if video_id:
+        sql += " AND video_id = ?"
+        params.append(video_id)
+    known = sorted(r["speaker"] for r in conn.execute(sql, params).fetchall())
+    scope = f"video {video_id}" if video_id else "the index"
+    if not known:
+        raise IndexError_(
+            f"{scope} has no speaker labels, so it cannot be filtered by speaker",
+            code="index.not_diarized",
+            fix="re-watch with --diarize (needs the diarize extra + "
+            "WATCHSKILL_HUGGINGFACE_TOKEN), or drop the speaker filter",
+            details={"video_id": video_id, "speaker": speaker},
+        )
+    match = next((k for k in known if k.lower() == speaker.strip().lower()), None)
+    if match is None:
+        raise IndexError_(
+            f"speaker {speaker!r} does not appear in {scope}",
+            code="index.unknown_speaker",
+            fix=f"use one of: {', '.join(known)} (labels are case-insensitive)",
+            details={"video_id": video_id, "speaker": speaker, "known_speakers": known},
+        )
+    return match
+
+
+def checked_speaker(video_id: str | None, speaker: str | None) -> str | None:
+    """None when no filter was asked for; otherwise the validated label."""
+    if speaker is None or not speaker.strip():
+        return None
+    conn = connect()
+    try:
+        return require_speaker(conn, video_id, speaker)
+    finally:
+        conn.close()
+
+
+def hybrid_search(
+    query: str, video_id: str | None = None, k: int = 8, speaker: str | None = None
+) -> list[Hit]:
+    """Merge keyword (FTS5 bm25) and vector (cosine) hits, best-of-both scoring.
+
+    ``speaker`` keeps only transcript segments spoken by that diarized label
+    (case-insensitive); it is not validated here — callers that take it from
+    an agent go through :func:`require_speaker` first.
+    """
     conn = connect()
     try:
         merged: dict[tuple[str, str, int], Hit] = {}
-        for weight, hits in ((0.45, _fts_hits(conn, query, video_id)),
-                             (0.55, _vector_hits(conn, query, video_id))):
+        for weight, hits in ((0.45, _fts_hits(conn, query, video_id, speaker)),
+                             (0.55, _vector_hits(conn, query, video_id, speaker))):
             for hit in hits:
                 key = (hit.video_id, hit.kind, hit.ref_id)
                 weighted = hit.score * weight
@@ -332,8 +432,9 @@ def hybrid_search(query: str, video_id: str | None = None, k: int = 8) -> list[H
         # Collapse BEFORE the cut, over the whole candidate pool. Doing it
         # after would dedup a top-k that redundancy had already filled, which
         # is the bug wearing a smaller hat.
-        ranked = collapse_ocr_duplicates(ranked, conn)
-        return ranked[:k]
+        ranked = collapse_ocr_duplicates(ranked, conn)[:k]
+        _attach_speakers(conn, ranked)
+        return ranked
     finally:
         conn.close()
 
@@ -353,14 +454,15 @@ def frames_near(
 
 def ask_video(
     video_id_or_source: str, question: str, k: int = 8, max_frames: int = 6,
-    allow_stale: bool = False,
+    allow_stale: bool = False, speaker: str | None = None,
 ) -> dict[str, Any]:
     """Retrieval-based answer context: top hits + the frames around them.
 
     Returns text evidence with timestamps plus a handful of frame paths —
     NOT a re-run of the full analysis. Refuses to answer from artifacts whose
     source has demonstrably changed; ``allow_stale`` opts into reading the
-    historical revision anyway.
+    historical revision anyway. ``speaker`` keeps only what that diarized
+    speaker said.
     """
     from watch_skill.index.store import require_current
 
@@ -372,7 +474,8 @@ def ask_video(
             fix="run watch_video/`watch-skill watch --index` on it first, or list_videos()",
         )
     freshness = require_current(video_id_or_source, allow_stale=allow_stale)
-    hits = hybrid_search(question, video_id=video["id"], k=k)
+    speaker = checked_speaker(video["id"], speaker)
+    hits = hybrid_search(question, video_id=video["id"], k=k, speaker=speaker)
     conn = connect()
     try:
         frame_rows: list[dict[str, Any]] = []
@@ -392,12 +495,18 @@ def ask_video(
         "hits": [vars(h) for h in hits],
         "frames": frame_rows,
         "freshness": freshness,
+        "speaker": speaker,
     }
 
 
-def search_videos(query: str, k: int = 12) -> list[dict[str, Any]]:
-    """Cross-video hybrid search; hits grouped with their video rows."""
-    hits = hybrid_search(query, video_id=None, k=k)
+def search_videos(query: str, k: int = 12, speaker: str | None = None) -> list[dict[str, Any]]:
+    """Cross-video hybrid search; hits grouped with their video rows.
+
+    ``speaker`` keeps only transcript segments with that diarized label, in
+    any video that has it.
+    """
+    speaker = checked_speaker(None, speaker)
+    hits = hybrid_search(query, video_id=None, k=k, speaker=speaker)
     videos: dict[str, dict[str, Any]] = {}
     for hit in hits:
         videos.setdefault(hit.video_id, {"video": get_video(hit.video_id), "hits": []})
@@ -407,9 +516,14 @@ def search_videos(query: str, k: int = 12) -> list[dict[str, Any]]:
 
 def get_moment(
     video_id_or_source: str, timestamp: float, window: float = 10.0, max_frames: int = 6,
-    allow_stale: bool = False,
+    allow_stale: bool = False, speaker: str | None = None,
 ) -> MomentContext:
-    """Dense context around one moment: nearby frames, transcript, OCR."""
+    """Dense context around one moment: nearby frames, transcript, OCR.
+
+    Every segment carries a ``speaker`` key (``None`` when not diarized);
+    ``speaker`` keeps only that speaker's segments. Frames and OCR are not
+    filtered — nobody "says" a frame.
+    """
     from watch_skill.index.store import require_current
 
     video = get_video(video_id_or_source)
@@ -420,6 +534,7 @@ def get_moment(
             fix="run watch_video on it first",
         )
     require_current(video_id_or_source, allow_stale=allow_stale)
+    speaker = checked_speaker(video["id"], speaker)
     lo, hi = timestamp - window / 2, timestamp + window / 2
     conn = connect()
     try:
@@ -434,11 +549,15 @@ def get_moment(
             frames = sorted(frames, key=lambda f: f["timestamp"])
         else:
             frames = [dict(r) for r in frames][:max_frames]
-        segments = conn.execute(
-            """SELECT start, end, text, words_json FROM segments
-               WHERE video_id = ? AND end >= ? AND start <= ? ORDER BY start""",
-            (video["id"], lo, hi),
-        ).fetchall()
+        seg_sql = (
+            "SELECT start, end, text, speaker, words_json FROM segments "
+            "WHERE video_id = ? AND end >= ? AND start <= ?"
+        )
+        seg_params: list[Any] = [video["id"], lo, hi]
+        if speaker:
+            seg_sql += " AND speaker = ? COLLATE NOCASE"
+            seg_params.append(speaker)
+        segments = conn.execute(seg_sql + " ORDER BY start", seg_params).fetchall()
         ocr = conn.execute(
             """SELECT timestamp, text, confidence FROM ocr_blocks
                WHERE video_id = ? AND timestamp BETWEEN ? AND ? ORDER BY timestamp""",

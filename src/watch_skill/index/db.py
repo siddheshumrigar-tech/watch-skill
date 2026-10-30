@@ -408,6 +408,18 @@ MIGRATIONS: list[Migration] = [
     """
     ALTER TABLE answers ADD COLUMN engine_schema TEXT;
     """,
+    # v11 — who said it, and in which language.
+    #
+    # Diarization labelled segments in memory and the index dropped the label,
+    # so "what did SPEAKER_01 say about X" had nothing to filter on. The
+    # transcript language goes on the video row so list/ask can report it.
+    # Existing rows get NULL: unknown, not a guess.
+    """
+    ALTER TABLE segments ADD COLUMN speaker TEXT;
+    CREATE INDEX idx_segments_speaker ON segments(video_id, speaker);
+    ALTER TABLE videos ADD COLUMN transcript_language TEXT;
+    ALTER TABLE videos ADD COLUMN transcript_language_probability REAL;
+    """,
 ]
 
 

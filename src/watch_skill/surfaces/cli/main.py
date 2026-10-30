@@ -274,6 +274,11 @@ def ask(
     frames: bool = typer.Option(False, "--frames", help="Always list evidence frame paths."),
     no_verify: bool = typer.Option(False, "--no-verify", help="Skip the model verify pass."),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the semantic answer cache."),
+    speaker: str | None = typer.Option(
+        None, "--speaker",
+        help="Answer only from what this diarized speaker said, e.g. SPEAKER_01 "
+        "(needs a video watched with --diarize; bypasses the answer cache).",
+    ),
 ) -> None:
     """Ask an already-indexed video a question (self-healing answer engine)."""
     from watch_skill.answer import answer_question
@@ -285,6 +290,7 @@ def ask(
             include_frames=True if frames else None,
             verify=False if no_verify else None,
             use_cache=not no_cache,
+            speaker=speaker,
         )
     except WatchSkillError as exc:
         print(json.dumps(exc.to_dict(), indent=2))
@@ -1121,17 +1127,29 @@ def list_cmd() -> None:
 
 
 @app.command()
-def search(query: str = typer.Argument(...)) -> None:
+def search(
+    query: str = typer.Argument(...),
+    speaker: str | None = typer.Option(
+        None, "--speaker", help="Keep only transcript lines from this diarized speaker."
+    ),
+) -> None:
     """Search across every indexed video."""
+    from watch_skill.errors import WatchSkillError
     from watch_skill.index import search_videos
     from watch_skill.perceive.budget import format_time
 
-    for group in search_videos(query):
+    try:
+        groups = search_videos(query, speaker=speaker)
+    except WatchSkillError as exc:
+        print(json.dumps(exc.to_dict(), indent=2))
+        raise typer.Exit(code=1) from None
+    for group in groups:
         video = group["video"] or {}
         print(f"\n## {video.get('title') or video.get('source')} ({video.get('id')})")
         for hit in group["hits"]:
             stamp = format_time(hit["timestamp"]) if hit["timestamp"] is not None else "--:--"
-            print(f"- [{stamp}] ({hit['kind']}, {hit['score']:.2f}) {hit['text']}")
+            who = f"{hit['speaker']}: " if hit.get("speaker") else ""
+            print(f"- [{stamp}] ({hit['kind']}, {hit['score']:.2f}) {who}{hit['text']}")
 
 
 loop_app = typer.Typer(help="THE LOOP: capture -> critique -> fix -> re-capture.")

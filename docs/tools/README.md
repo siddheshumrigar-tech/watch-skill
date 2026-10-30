@@ -90,9 +90,19 @@ video does not clearly show the answer — it never guesses.
 | `max_frames` | int | `6` | Cap on attached evidence frames |
 | `include_frames` | bool | engine | Force frames on/off; default attaches them only when the engine could not verify |
 | `verify` | bool | config | Force the model verify pass on/off |
+| `speaker` | str | — | Answer only from what one diarized speaker said (`SPEAKER_01`, case-insensitive). Bypasses the answer cache |
 
 Returns text-first evidence with timestamps plus a metadata line
 (`confidence`, `verified`, `cached`, `escalations_used`, tokens saved).
+Evidence from a diarized video reads `SPEAKER_00: text`.
+
+**Speaker filters** (`ask_video`, `get_moment`, `search_videos`) need a video
+watched with `diarize`. A video with no speaker labels returns
+`index.not_diarized` (fix: re-watch with `--diarize`); a label that does not
+occur returns `index.unknown_speaker` with `details.known_speakers`. REST:
+`speaker` in the `POST /v1/ask` and `POST /v1/answer` body, and a `speaker`
+query parameter on `GET /v1/search` and `GET /v1/videos/{video}/moment`.
+CLI: `watch-skill ask --speaker`, `watch-skill search --speaker`.
 
 ### `get_moment`
 
@@ -104,8 +114,10 @@ Zoom into one specific moment of an indexed video ("what happens at
 | `video` | str | required | `video_id` or original source |
 | `timestamp` | str | required | Center of the window |
 | `window` | float | `10.0` | Seconds of context around the timestamp |
+| `speaker` | str | — | Keep only that diarized speaker's transcript lines; frames and OCR are unaffected |
 
-Returns dense frames + transcript + OCR within the window.
+Returns dense frames + transcript + OCR within the window. Every transcript
+segment carries a `speaker` key (`null` when the video was not diarized).
 
 ## Across the whole index
 
@@ -118,14 +130,16 @@ per-script normalization (Arabic folding, CJK segmentation).
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `query` | str | required | Keywords or a phrase, any language |
+| `speaker` | str | — | Keep only transcript lines from that diarized speaker, in any video that has it |
 
 Returns videos with timestamped evidence — follow up with `ask_video` or
-`get_moment` on a hit.
+`get_moment` on a hit. Each hit carries `speaker` (`null` for OCR, scenes,
+and videos that were not diarized).
 
 ### `list_videos`
 
 See what is already indexed (id, title, duration, transcript source,
-analyzed date). No parameters. Check here **before** `watch_video` when
+transcript language when known, analyzed date). No parameters. Check here **before** `watch_video` when
 the video might have been analyzed in an earlier session.
 
 ## Learning & token economy

@@ -240,6 +240,7 @@ def ask_video(
     max_frames: int = 6,
     include_frames: bool | None = None,
     verify: bool | None = None,
+    speaker: str | None = None,
 ) -> list[Any]:
     """ANY follow-up question about a video you (or anyone) already watched —
     ALWAYS prefer this over re-running watch_video: the self-healing answer
@@ -249,12 +250,18 @@ def ask_video(
     answer — it never guesses. Responses are TEXT-FIRST with timestamps
     (near-zero image tokens); frames attach only when include_frames=true or
     the engine could not verify and you should look yourself. Accepts a
-    video_id or the original source URL/path. Works across sessions."""
+    video_id or the original source URL/path. Works across sessions.
+
+    speaker: answer only from what one diarized speaker said, e.g.
+    "SPEAKER_01" (case-insensitive). Only works on videos watched with
+    diarize; an unknown label returns index.unknown_speaker listing the
+    labels that exist. A filtered ask is never served from the answer cache."""
     from watch_skill.answer import answer_question
 
     try:
         answer = answer_question(
-            video, question, include_frames=include_frames, verify=verify
+            video, question, include_frames=include_frames, verify=verify,
+            speaker=speaker,
         )
     except WatchSkillError as exc:
         return [_error_payload(exc)]
@@ -327,24 +334,35 @@ def stats() -> str:
     return "\n".join(lines)
 
 
+def _who(item: dict[str, Any]) -> str:
+    """``SPEAKER_00: `` for a diarized segment, nothing otherwise."""
+    return f"{item['speaker']}: " if item.get("speaker") else ""
+
+
 @mcp.tool(output_schema=None)
-def get_moment(video: str, timestamp: str, window: float = 10.0) -> list[Any]:
+def get_moment(
+    video: str, timestamp: str, window: float = 10.0, speaker: str | None = None
+) -> list[Any]:
     """Zoom into ONE SPECIFIC MOMENT of an indexed video — use when the user
     names a timestamp ("what happens at 2:30?") or when an ask_video hit
     needs more surrounding detail. Returns dense frames + transcript + OCR
     within `window` seconds around `timestamp` (SS, MM:SS, or HH:MM:SS).
-    For a broad question about the whole video, use ask_video instead."""
+    For a broad question about the whole video, use ask_video instead.
+
+    speaker: keep only that diarized speaker's transcript lines (frames and
+    OCR are unaffected). Transcript lines are rendered "SPEAKER_00: text"
+    whenever the video was diarized."""
     from watch_skill.index import get_moment as moment
 
     try:
         ts = parse_time(timestamp) or 0.0
-        ctx = moment(video, ts, window=window)
+        ctx = moment(video, ts, window=window, speaker=speaker)
     except WatchSkillError as exc:
         return [_error_payload(exc)]
     lines = [f"# Moment {format_time(ctx.timestamp)} ±{ctx.window / 2:.0f}s of {ctx.video_id}", ""]
     if ctx.segments:
         lines.append("Transcript:")
-        lines += [f"- [{format_time(s['start'])}] {s['text']}" for s in ctx.segments]
+        lines += [f"- [{format_time(s['start'])}] {_who(s)}{s['text']}" for s in ctx.segments]
     if ctx.ocr:
         lines.append("On-screen text (OCR):")
         lines += [f"- [{format_time(o['timestamp'])}] {o['text']}" for o in ctx.ocr]
@@ -354,16 +372,23 @@ def get_moment(video: str, timestamp: str, window: float = 10.0) -> list[Any]:
 
 
 @mcp.tool
-def search_videos(query: str) -> str:
+def search_videos(query: str, speaker: str | None = None) -> str:
     """Find something across EVERY video ever watched, when you don't know
     which video contains it ("which video mentioned X?"). Hybrid keyword +
     semantic search; Arabic and other scripts are matched with proper
     normalization. Returns videos with timestamped evidence — follow up with
     ask_video or get_moment on a hit. For a question about one known video,
-    use ask_video directly."""
+    use ask_video directly.
+
+    speaker: keep only transcript lines spoken by that diarized label (e.g.
+    "SPEAKER_01"), in any video that has it. Diarized hits are rendered
+    "SPEAKER_00: text"."""
     from watch_skill.index import search_videos as search
 
-    groups = search(query)
+    try:
+        groups = search(query, speaker=speaker)
+    except WatchSkillError as exc:
+        return _error_payload(exc)
     if not groups:
         return f"No indexed content matches {query!r}. Use list_videos to see what is indexed."
     lines = [f"# Matches for {query!r}", ""]
@@ -372,7 +397,9 @@ def search_videos(query: str) -> str:
         lines.append(f"## {video.get('title') or video.get('source')} (id {video.get('id')})")
         for hit in group["hits"]:
             stamp = format_time(hit["timestamp"]) if hit["timestamp"] is not None else "--:--"
-            lines.append(f"- [{stamp}] ({hit['kind']}, {hit['score']:.2f}) {hit['text']}")
+            lines.append(
+                f"- [{stamp}] ({hit['kind']}, {hit['score']:.2f}) {_who(hit)}{hit['text']}"
+            )
         lines.append("")
     return "\n".join(lines)
 
@@ -389,10 +416,12 @@ def list_videos() -> str:
         return "The index is empty — watch_video something first."
     lines = ["# Indexed videos", ""]
     for row in rows:
+        language = row.get("transcript_language")
+        lang = f", language: {language}" if language else ""
         lines.append(
             f"- `{row['id']}` — {row['title'] or row['source']} "
-            f"({format_time(row['duration_seconds'])}, transcript: {row['transcript_source']}, "
-            f"analyzed {row['last_analyzed_at']})"
+            f"({format_time(row['duration_seconds'])}, transcript: {row['transcript_source']}"
+            f"{lang}, analyzed {row['last_analyzed_at']})"
         )
     return "\n".join(lines)
 

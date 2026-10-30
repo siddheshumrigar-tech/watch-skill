@@ -97,6 +97,11 @@ class AskRequest(BaseModel):
     question: str
     max_frames: int = Field(default=6, ge=1, le=12)
     inline_frames: int = Field(default=0, ge=0, le=12)
+    speaker: str | None = Field(
+        default=None,
+        description="Only what this diarized speaker said, e.g. 'SPEAKER_01' "
+        "(case-insensitive). Bypasses the answer cache.",
+    )
 
 
 class LibraryAskRequest(BaseModel):
@@ -202,7 +207,8 @@ def create_app() -> FastAPI:
         from watch_skill.index import ask_video as ask
 
         try:
-            result = ask(req.video, req.question, max_frames=req.max_frames)
+            result = ask(req.video, req.question, max_frames=req.max_frames,
+                         speaker=req.speaker)
         except WatchSkillError as exc:
             raise _http_error(exc) from exc
         result["frames"] = _frame_payload(
@@ -221,7 +227,7 @@ def create_app() -> FastAPI:
         from watch_skill.answer import answer_question
 
         try:
-            result = answer_question(req.video, req.question)
+            result = answer_question(req.video, req.question, speaker=req.speaker)
         except WatchSkillError as exc:
             raise _http_error(exc) from exc
         payload = result.to_dict()
@@ -421,12 +427,15 @@ def create_app() -> FastAPI:
         timestamp: str = Query(description="SS, MM:SS, or HH:MM:SS."),
         window: float = Query(default=10.0, gt=0, le=120),
         inline_frames: int = Query(default=0, ge=0, le=12),
+        speaker: str | None = Query(
+            default=None, description="Keep only this diarized speaker's segments."
+        ),
     ) -> dict[str, Any]:
         """Dense frames + transcript + OCR around one moment."""
         from watch_skill.index import get_moment as moment
 
         try:
-            ctx = moment(video, parse_time(timestamp) or 0.0, window=window)
+            ctx = moment(video, parse_time(timestamp) or 0.0, window=window, speaker=speaker)
         except WatchSkillError as exc:
             raise _http_error(exc) from exc
         return {
@@ -439,11 +448,19 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/v1/search", tags=["video"])
-    def search_videos(q: str = Query(min_length=1)) -> list[dict[str, Any]]:
+    def search_videos(
+        q: str = Query(min_length=1),
+        speaker: str | None = Query(
+            default=None, description="Keep only this diarized speaker's segments."
+        ),
+    ) -> list[dict[str, Any]]:
         """Hybrid keyword + semantic search across every indexed video."""
         from watch_skill.index import search_videos as search
 
-        return search(q)
+        try:
+            return search(q, speaker=speaker)
+        except WatchSkillError as exc:
+            raise _http_error(exc) from exc
 
     @app.get("/v1/videos", tags=["video"])
     def list_videos() -> list[dict[str, Any]]:

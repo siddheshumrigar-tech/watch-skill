@@ -22,6 +22,17 @@
   API reports (`"english"`) is kept as a code (`en`), and a forced language
   is sent with the request.
 
+### Index and retrieval
+
+- Speaker labels and the transcript language are stored (index schema v11:
+  `segments.speaker`, `videos.transcript_language`,
+  `videos.transcript_language_probability`). Existing rows keep `NULL`.
+- `ask_video`, `search_videos` and `get_moment` take `speaker` on MCP, CLI
+  (`ask --speaker`, `search --speaker`) and REST. Hits, evidence and moment
+  segments carry `speaker`. An undiarized video returns `index.not_diarized`;
+  an unknown label returns `index.unknown_speaker` with the known labels. A
+  speaker-filtered ask never reads or writes the answer cache.
+
 ## DeepWatch v0.1.2 — 2026-09-08
 
 Moves with Watch Skill 1.4.1, and carries the gate work that release needed.
