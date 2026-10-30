@@ -22,6 +22,19 @@
   API reports (`"english"`) is kept as a code (`en`), and a forced language
   is sent with the request.
 
+### Watch pipeline
+
+- Audio-only sources (wav, podcasts, mp3 with cover art) skip frames, scenes
+  and OCR by design and say so (`media_kind: "audio"`). ffprobe cover art
+  (`disposition.attached_pic`) no longer counts as a video stream, and the CLI
+  now indexes audio-only results. Visual options passed for an audio source
+  produce `perceive.audio_only_ignored_options`.
+- `WatchResult.warnings` collects every degradation as `{code, message, fix}`
+  (including `transcribe.no_transcript`). The report gains a `## Warnings`
+  section and ends with a `## Machine summary` JSON block; REST `/v1/watch`
+  returns it as `summary`, and `watch-skill watch --json` prints
+  `{video_id, summary, warnings}`.
+
 ### Index and retrieval
 
 - Speaker labels and the transcript language are stored (index schema v11:

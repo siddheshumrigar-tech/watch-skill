@@ -199,6 +199,7 @@ def create_app() -> FastAPI:
             "transcript_language": result.transcript.language,
             "transcript_language_probability": result.transcript.language_probability,
             "duration_seconds": result.metadata.duration_seconds,
+            "summary": result.to_summary(),
         }
 
     @app.post("/v1/ask", tags=["video"])

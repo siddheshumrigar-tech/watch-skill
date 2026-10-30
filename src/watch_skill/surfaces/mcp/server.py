@@ -140,9 +140,12 @@ async def watch_video(
     as an ISO 639-1 code ('en', 'es', 'ar'); omit it to auto-detect — the
     report's transcript line names the language used and whether it was
     detected (with probability), forced, or read from captions. An unknown
-    code fails at once with transcribe.bad_language. Long video or strict
-    client timeout? Pass background=true for an instant job_id, then poll
-    get_status."""
+    code fails at once with transcribe.bad_language. Audio files (podcast,
+    mp3 with cover art, wav) are transcribed and indexed with frames skipped
+    by design. The report ends with a "Machine summary" JSON block (media_kind,
+    transcript language, frame count, warnings with code/message/fix) — read
+    that instead of parsing prose. Long video or strict client timeout? Pass
+    background=true for an instant job_id, then poll get_status."""
     from watch_skill import jobs
 
     if background:

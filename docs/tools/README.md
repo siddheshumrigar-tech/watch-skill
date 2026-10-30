@@ -51,6 +51,39 @@ line names the language and where it came from, for example
 subtitle file. `POST /v1/watch` takes the same `language` field and returns
 `transcript_language` and `transcript_language_probability`.
 
+**Audio-only sources.** A wav, a podcast, or an mp3 whose only "video" is
+cover art (`disposition.attached_pic`) is transcribed and indexed with frames,
+scenes and OCR skipped by design; the report says
+`- **Media:** audio-only (no video stream; frames, scenes and OCR skipped by design)`.
+Passing `budget` (or other visual options) for such a source adds the warning
+`perceive.audio_only_ignored_options`.
+
+**Warnings and the machine summary.** Every degradation is a
+`{"code", "message", "fix"}` warning, listed under `## Warnings` in the report
+(for example `transcribe.no_transcript` when no rung produced speech). The
+report always ends with a `## Machine summary` JSON block with these keys,
+each always present:
+
+```json
+{
+  "source": "memo.wav",
+  "media_kind": "audio",
+  "duration_seconds": 3.0,
+  "focused": false,
+  "transcript": {"source": "whisper-local (tiny)", "language": "en",
+                 "language_probability": 0.99, "language_source": "detected",
+                 "segment_count": 1, "has_speakers": false,
+                 "has_word_timestamps": false},
+  "frames": {"count": 0, "seconds_per_frame": null, "sparse": false},
+  "audio_events": {"count": 0, "labels": []},
+  "warnings": []
+}
+```
+
+`media_kind` is `video`, `audio`, or `none` (nothing was downloaded, e.g. a
+captions-only pass). `POST /v1/watch` returns the same object as `summary`,
+and `watch-skill watch --json` prints `{"video_id", "summary", "warnings"}`.
+
 ### `get_status`
 
 Poll a background job started with `watch_video(background=true)`.

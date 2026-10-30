@@ -227,7 +227,8 @@ the output for the calling agent.
 | `--duration` | float | none | Bound live-stream capture to N seconds. |
 | `--out-dir` | path | temp dir | Working directory for intermediate files. |
 | `--no-cache` | flag | off | Bypass the download cache. |
-| `--index/--no-index` | flag | `--index` | Persist the result to the searchable index (enables `ask`/`search` later). |
+| `--index/--no-index` | flag | `--index` | Persist the result to the searchable index (enables `ask`/`search` later). Audio-only files are indexed too: their transcript is searchable even though they have no frames. |
+| `--json` | flag | off | Print only `{"video_id", "summary", "warnings"}` as JSON instead of the markdown report. `summary` is the same stable object as the report's `## Machine summary` block. |
 
 ### `watch-skill ask VIDEO QUESTION`
 

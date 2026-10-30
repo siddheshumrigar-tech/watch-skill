@@ -147,6 +147,10 @@ def watch(
         "--detail",
         help="Frame-budget preset: transcript | efficient | balanced | token-burner.",
     ),
+    as_json: bool = typer.Option(
+        False, "--json",
+        help="Print only {video_id, summary, warnings} as JSON instead of the report.",
+    ),
 ) -> None:
     """Watch a video: acquire -> scenes -> frames -> OCR -> transcript -> report."""
     from pathlib import Path
@@ -205,13 +209,21 @@ def watch(
             use_cache=not no_cache,
         )
     except WatchSkillError as exc:
-        _console.print(f"[red]error:[/red] {_plain(exc)}")
+        if not as_json:
+            _console.print(f"[red]error:[/red] {_plain(exc)}")
         print(json.dumps(exc.to_dict(), indent=2))
         raise typer.Exit(code=1) from None
-    if index and result.perception is not None:
+    # An audio file has no frames and is still worth asking about later.
+    video_id = None
+    if index and (result.perception is not None or result.transcript):
         from watch_skill.index import index_watch_result
 
         video_id = index_watch_result(result)
+    if as_json:
+        print(json.dumps({"video_id": video_id, "summary": result.to_summary(),
+                          "warnings": result.warnings}, ensure_ascii=False, indent=2))
+        return
+    if video_id is not None:
         print(f"> **Indexed:** video_id `{video_id}` — follow up with `watch-skill ask {video_id} ...`\n")
     if question:
         print(f"> **Question:** {question}\n")

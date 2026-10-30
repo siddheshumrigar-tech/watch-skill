@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from watch_skill.acquire import AcquireResult, acquire, fetch_captions_only
 from watch_skill.acquire.sources import classify_source, is_url_kind
@@ -31,10 +32,76 @@ class WatchResult:
     work_dir: Path
     start_seconds: float | None = None
     end_seconds: float | None = None
+    # video | audio (no video stream: frames skipped by design) | none (no
+    # media was fetched, e.g. a captions-only pass)
+    media_kind: str = "video"
+    # One {"code", "message", "fix"} per degradation: the transcript ladder's
+    # failed rungs first, then the pipeline's own.
+    warnings: list[dict] = field(default_factory=list)
+    # Non-speech sound events, when audio-event detection ran.
+    audio_events: list = field(default_factory=list)
 
     @property
     def focused(self) -> bool:
         return self.start_seconds is not None or self.end_seconds is not None
+
+    def to_summary(self) -> dict[str, Any]:
+        """Stable machine-readable summary: every key always present."""
+        transcript = self.transcript
+        perception = self.perception
+        frames = perception.frames if perception is not None else []
+        seconds_per_frame = getattr(perception, "seconds_per_frame", None)
+        if seconds_per_frame is None and frames:
+            lo = self.start_seconds or 0.0
+            hi = (self.end_seconds if self.end_seconds is not None
+                  else self.metadata.duration_seconds)
+            seconds_per_frame = round((hi - lo) / len(frames), 2) if hi > lo else None
+        labels = sorted({
+            e.get("label") if isinstance(e, dict) else getattr(e, "label", None)
+            for e in self.audio_events
+        } - {None})
+        return {
+            "source": self.acquisition.source,
+            "media_kind": self.media_kind,
+            "duration_seconds": self.metadata.duration_seconds,
+            "focused": self.focused,
+            "transcript": {
+                "source": transcript.source,
+                "language": transcript.language,
+                "language_probability": transcript.language_probability,
+                "language_source": transcript.language_source,
+                "segment_count": len(transcript.segments),
+                "has_speakers": any(s.speaker for s in transcript.segments),
+                "has_word_timestamps": any(s.words for s in transcript.segments),
+            },
+            "frames": {
+                "count": len(frames),
+                "seconds_per_frame": seconds_per_frame,
+                "sparse": bool(getattr(perception, "sampling_sparse", False)),
+            },
+            "audio_events": {"count": len(self.audio_events), "labels": labels},
+            "warnings": [dict(w) for w in self.warnings],
+        }
+
+
+def _warning(code: str, message: str, fix: str) -> dict:
+    return {"code": code, "message": message, "fix": fix}
+
+
+def _ignored_visual_options(
+    max_frames: int | None,
+    cue_timestamps: list[float] | None,
+    run_ocr: bool | None,
+    frame_width: int | None,
+) -> list[str]:
+    """Visual options the caller passed that an audio-only source cannot use."""
+    passed = {
+        "max_frames": max_frames is not None,
+        "cue_timestamps": cue_timestamps is not None,
+        "run_ocr": run_ocr is True,
+        "frame_width": frame_width is not None,
+    }
+    return [name for name, given in passed.items() if given]
 
 
 def _validate_budget(max_frames: int | None) -> None:
@@ -138,6 +205,22 @@ def watch(
         )
     _validate_window(start_seconds, end_seconds, metadata.duration_seconds)
 
+    # An audio file (wav, mp3, a podcast; cover art does not count as video)
+    # has nothing to sample. Running perception anyway failed in frame
+    # extraction, so it is skipped by design and the caller is told.
+    warnings: list[dict] = []
+    media_kind = "none" if acq.video_path is None else "video"
+    if acq.video_path is not None and metadata.width is None and metadata.has_audio:
+        media_kind = "audio"
+        ignored = _ignored_visual_options(max_frames, cue_timestamps, run_ocr, frame_width)
+        if ignored:
+            warnings.append(_warning(
+                "perceive.audio_only_ignored_options",
+                f"the source has no video stream, so {', '.join(ignored)} had no effect",
+                "drop the visual options for audio sources; the transcript is the "
+                "whole result",
+            ))
+
     # A recording made by `watch-skill capture --script` carries the moments
     # its interactions happened at, and those are the frames it exists to
     # show -- also the frames near-duplicate selection is likeliest to drop,
@@ -146,12 +229,12 @@ def watch(
     # every ingestion path the same behaviour: the CLI, MCP, REST, the job
     # queue and the batch runner all arrive through this function. An explicit
     # `cue_timestamps` is the caller naming the moments that matter, and wins.
-    if cue_timestamps is None and acq.video_path is not None:
+    if cue_timestamps is None and acq.video_path is not None and media_kind == "video":
         cue_timestamps = discover_cues(acq.video_path, metadata.duration_seconds)
 
     progress("extracting frames (scenes, dedup, OCR)", 0.35)
     perception: PerceptionResult | None = None
-    if not transcript_only and acq.video_path is not None:
+    if not transcript_only and acq.video_path is not None and media_kind == "video":
         perception = perceive(
             acq.video_path,
             work_dir / "frames",
@@ -194,6 +277,17 @@ def watch(
             start_seconds=start_seconds, end_seconds=end_seconds,
         )
 
+    # A silent video already carries transcribe.no_audio from the ladder; an
+    # empty transcript of something that could have speech is worth naming.
+    if not transcript and (metadata.has_audio or acq.video_path is None):
+        warnings.append(_warning(
+            "transcribe.no_transcript",
+            "no transcript was produced (no captions, and no speech-to-text rung "
+            "succeeded); the other warnings name each rung that failed",
+            'install local whisper: pip install "watch-skill[whisper]" (from a '
+            "checkout: uv sync --extra whisper), or opt in to cloud STT",
+        ))
+
     return WatchResult(
         acquisition=acq,
         metadata=metadata,
@@ -202,4 +296,6 @@ def watch(
         work_dir=work_dir,
         start_seconds=start_seconds,
         end_seconds=end_seconds,
+        media_kind=media_kind,
+        warnings=[*transcript.warnings, *warnings],
     )

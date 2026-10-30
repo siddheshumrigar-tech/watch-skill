@@ -6,11 +6,16 @@ fenced timestamped transcript. Agents already know how to consume this.
 """
 from __future__ import annotations
 
+import json
+
 from watch_skill.perceive.budget import format_time
 from watch_skill.transcribe.types import Transcript
 from watch_skill.watch import WatchResult
 
 LONG_VIDEO_WARN_SECONDS = 600
+
+
+AUDIO_ONLY_NOTE = "audio-only (no video stream; frames, scenes and OCR skipped by design)"
 
 
 def _header_lines(result: WatchResult) -> list[str]:
@@ -29,6 +34,8 @@ def _header_lines(result: WatchResult) -> list[str]:
         lo = result.start_seconds or 0.0
         hi = result.end_seconds if result.end_seconds is not None else meta.duration_seconds
         lines.append(f"- **Focus range:** {format_time(lo)} -> {format_time(hi)} ({hi - lo:.1f}s)")
+    if result.media_kind == "audio":
+        lines.append(f"- **Media:** {AUDIO_ONLY_NOTE}")
     if meta.width and meta.height:
         lines.append(f"- **Resolution:** {meta.width}x{meta.height} ({meta.codec or 'unknown codec'})")
     lines.append(f"- **Acquired via:** {result.acquisition.acquirer}"
@@ -39,6 +46,9 @@ def _header_lines(result: WatchResult) -> list[str]:
 def _frames_lines(result: WatchResult) -> list[str]:
     lines = ["", "## Frames", ""]
     perception = result.perception
+    if result.media_kind == "audio":
+        lines.append(f"_None: the source is {AUDIO_ONLY_NOTE}._")
+        return lines
     if perception is None or not perception.frames:
         lines.append("_No frames extracted._")
         return lines
@@ -116,5 +126,23 @@ def render_report(result: WatchResult) -> str:
         ]
 
     lines += _transcript_lines(result)
+    lines += _warning_lines(result)
     lines += ["", "---", f"_Work dir: `{result.work_dir}` — frames live here._"]
+    lines += [
+        "", "## Machine summary", "",
+        "```json", json.dumps(result.to_summary(), ensure_ascii=False, indent=2), "```",
+    ]
     return "\n".join(lines)
+
+
+def _warning_lines(result: WatchResult) -> list[str]:
+    """One line per degradation, with the fix that removes it."""
+    if not result.warnings:
+        return []
+    lines = ["", "## Warnings", ""]
+    for warning in result.warnings:
+        line = f"- `{warning.get('code')}`: {warning.get('message')}"
+        if warning.get("fix"):
+            line += f" (fix: {warning['fix']})"
+        lines.append(line)
+    return lines

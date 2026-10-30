@@ -34,7 +34,17 @@ def probe(video_path: Path) -> VideoMetadata:
     data = json.loads(result.stdout or "{}")
     streams = data.get("streams", [])
     fmt = data.get("format", {})
-    video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+    # Cover art (an mp3's album image) is a "video" stream with
+    # disposition.attached_pic = 1: one still, not something to sample.
+    # `-show_streams` includes the disposition block.
+    video_stream = next(
+        (
+            s for s in streams
+            if s.get("codec_type") == "video"
+            and not (s.get("disposition") or {}).get("attached_pic")
+        ),
+        {},
+    )
     audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
 
     fps = None
