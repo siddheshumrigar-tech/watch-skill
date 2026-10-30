@@ -15,7 +15,8 @@ import httpx
 from watch_skill.config import get_settings
 from watch_skill.errors import TranscriptionError
 from watch_skill.transcribe import audio as audio_mod
-from watch_skill.transcribe.types import Segment, Transcript
+from watch_skill.transcribe.languages import normalize_language
+from watch_skill.transcribe.types import Segment, Transcript, Word
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3"
@@ -64,7 +65,20 @@ def pick_backend(preferred: str | None = None) -> tuple[str, str]:
     )
 
 
-def _post_once(endpoint: str, api_key: str, model: str, audio_path: Path) -> dict:
+def _post_once(
+    endpoint: str,
+    api_key: str,
+    model: str,
+    audio_path: Path,
+    word_timestamps: bool = False,
+    language: str | None = None,
+) -> dict:
+    data: dict = {"model": model, "response_format": "verbose_json", "temperature": "0"}
+    if word_timestamps:
+        # without a granularity the API returns segments only
+        data["timestamp_granularities[]"] = ["word", "segment"]
+    if language:
+        data["language"] = language
     with audio_path.open("rb") as fh:
         response = httpx.post(
             endpoint,
@@ -73,7 +87,7 @@ def _post_once(endpoint: str, api_key: str, model: str, audio_path: Path) -> dic
                 # default python UAs trip Groq's Cloudflare WAF (reference-learned)
                 "User-Agent": "watch-skill/0.6 (+https://github.com/oxbshw/watch-skill)",
             },
-            data={"model": model, "response_format": "verbose_json", "temperature": "0"},
+            data=data,
             files={"file": (audio_path.name, fh, "audio/mpeg")},
             timeout=300.0,
         )
@@ -81,11 +95,21 @@ def _post_once(endpoint: str, api_key: str, model: str, audio_path: Path) -> dic
     return response.json()
 
 
-def _post_with_retry(endpoint: str, api_key: str, model: str, audio_path: Path) -> dict:
+def _post_with_retry(
+    endpoint: str,
+    api_key: str,
+    model: str,
+    audio_path: Path,
+    word_timestamps: bool = False,
+    language: str | None = None,
+) -> dict:
     last_error: Exception | None = None
     for attempt in range(MAX_ATTEMPTS):
         try:
-            return _post_once(endpoint, api_key, model, audio_path)
+            return _post_once(
+                endpoint, api_key, model, audio_path,
+                word_timestamps=word_timestamps, language=language,
+            )
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             if 400 <= code < 500 and code != 429:
@@ -112,6 +136,32 @@ def _post_with_retry(endpoint: str, api_key: str, model: str, audio_path: Path) 
     )
 
 
+def _words_from(raw_words: list[dict] | None, offset: float) -> list[Word]:
+    """verbose_json words (``{"word", "start", "end"}``) on the source timeline."""
+    words: list[Word] = []
+    for raw in raw_words or []:
+        text = (raw.get("word") or "").strip()
+        if text:
+            words.append(Word(
+                start=round(float(raw.get("start") or 0.0) + offset, 2),
+                end=round(float(raw.get("end") or 0.0) + offset, 2),
+                text=text,
+            ))
+    return words
+
+
+def _attach_words(segments: list[Segment], words: list[Word]) -> None:
+    """Give each word to the segment its start falls in (else the nearest before it)."""
+    for word in words:
+        home = segments[0]
+        for seg in segments:
+            if seg.start <= word.start:
+                home = seg
+            if seg.start <= word.start < seg.end:
+                break
+        home.words.append(word)
+
+
 def _segments_from_response(data: dict, offset: float = 0.0) -> list[Segment]:
     out: list[Segment] = []
     for seg in data.get("segments") or []:
@@ -122,11 +172,21 @@ def _segments_from_response(data: dict, offset: float = 0.0) -> list[Segment]:
                     start=round(float(seg.get("start") or 0.0) + offset, 2),
                     end=round(float(seg.get("end") or 0.0) + offset, 2),
                     text=text,
+                    words=_words_from(seg.get("words"), offset),
                 )
             )
     if not out and (data.get("text") or "").strip():
         out.append(Segment(start=offset, end=offset, text=data["text"].strip()))
+    top_level = _words_from(data.get("words"), offset)
+    if out and top_level and not any(s.words for s in out):
+        _attach_words(out, top_level)
     return out
+
+
+def _language_from_response(data: dict) -> str | None:
+    """verbose_json reports the language as an English name (``"english"``)."""
+    reported = data.get("language")
+    return normalize_language(reported) if isinstance(reported, str) else None
 
 
 def merge_overlapping(chunks: list[list[Segment]]) -> list[Segment]:
@@ -150,8 +210,17 @@ def transcribe_cloud(
     video_path: Path,
     work_dir: Path,
     preferred_backend: str | None = None,
+    word_timestamps: bool = False,
+    language: str | None = None,
 ) -> Transcript:
-    """Extract audio, upload (chunked with overlap if large), merge segments."""
+    """Extract audio, upload (chunked with overlap if large), merge segments.
+
+    ``word_timestamps`` asks for word and segment granularities and attaches
+    the returned words to their segments; when none come back the transcript
+    carries a ``transcribe.cloud_no_word_timestamps`` warning. ``language``
+    (a Whisper code) is sent as-is; otherwise the API's reported language is
+    kept with ``language_source="detected"`` (verbose_json has no probability).
+    """
     _require_cloud_enabled(preferred_backend)
     backend, api_key = pick_backend(preferred_backend)
     _require_cloud_enabled(backend)  # the allowlist applies to the CHOSEN backend
@@ -161,9 +230,12 @@ def transcribe_cloud(
 
     audio_path = audio_mod.extract_audio(video_path, work_dir / "audio.mp3")
     size = audio_path.stat().st_size
+    options = {"word_timestamps": word_timestamps, "language": language}
+    reported: str | None = None
     if size <= audio_mod.MAX_UPLOAD_BYTES:
-        data = _post_with_retry(endpoint, api_key, model, audio_path)
+        data = _post_with_retry(endpoint, api_key, model, audio_path, **options)
         segments = _segments_from_response(data)
+        reported = _language_from_response(data)
     else:
         duration = audio_mod.audio_duration(audio_path)
         plan = audio_mod.plan_chunks(duration, size)
@@ -177,8 +249,9 @@ def transcribe_cloud(
             audio_mod.split_audio(audio_path, work_dir / "chunks", plan)
         ):
             try:
-                data = _post_with_retry(endpoint, api_key, model, chunk_path)
+                data = _post_with_retry(endpoint, api_key, model, chunk_path, **options)
                 pieces.append(_segments_from_response(data, offset=offset))
+                reported = reported or _language_from_response(data)
             except TranscriptionError as exc:
                 failures += 1
                 print(f"[watch-skill] chunk {i + 1}/{len(plan)} failed: {exc.code}", file=sys.stderr)
@@ -197,4 +270,29 @@ def transcribe_cloud(
             fix="the audio may be silence or music only — that is a valid "
             "result; OCR and vision still index the video",
         )
-    return Transcript(segments=segments, source=f"whisper-{backend}")
+    return _finish(
+        Transcript(segments=segments, source=f"whisper-{backend}"),
+        backend, word_timestamps, language, reported,
+    )
+
+
+def _finish(
+    transcript: Transcript,
+    backend: str,
+    word_timestamps: bool,
+    language: str | None,
+    reported: str | None,
+) -> Transcript:
+    """Record the language and warn when requested word timings never came back."""
+    if language:
+        transcript.language, transcript.language_source = language, "forced"
+    elif reported:
+        transcript.language, transcript.language_source = reported, "detected"
+    if word_timestamps and not any(s.words for s in transcript.segments):
+        transcript.warnings.append({
+            "code": "transcribe.cloud_no_word_timestamps",
+            "message": f"word timestamps were requested but whisper-{backend} returned none",
+            "fix": "segment timestamps are still exact to the segment; for word-level "
+            "citations use local whisper (WATCHSKILL_LOCAL_WHISPER_ENABLED=1)",
+        })
+    return transcript

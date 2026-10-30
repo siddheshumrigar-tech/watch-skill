@@ -71,10 +71,11 @@ def get_transcript(
 
     ``language`` forces the spoken language (a code or English name; None
     falls back to ``WATCHSKILL_WHISPER_LANGUAGE``, then auto-detection). It
-    reaches the local-whisper rung; captions report the language in their
-    filename. ``word_timestamps`` only reaches the local-whisper rung:
-    captions carry no word alignment, and the cloud backends here do not
-    return one either.
+    reaches the local-whisper and cloud rungs; captions report the language
+    in their filename. ``word_timestamps`` reaches the local-whisper and
+    cloud rungs; captions carry no word alignment. A cloud backend that
+    returns no words leaves a ``transcribe.cloud_no_word_timestamps``
+    warning on the transcript.
     """
     settings = get_settings()
     use_local = settings.local_whisper_enabled if allow_local is None else allow_local
@@ -120,7 +121,8 @@ def get_transcript(
     if use_cloud:
         try:
             return done(cloud.transcribe_cloud(
-                video_path, work_dir, preferred_backend=preferred_cloud_backend
+                video_path, work_dir, preferred_backend=preferred_cloud_backend,
+                word_timestamps=word_timestamps, language=lang,
             ))
         except TranscriptionError as exc:
             print(f"[watch-skill] cloud STT failed ({exc.code})", file=sys.stderr)

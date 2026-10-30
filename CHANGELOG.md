@@ -15,6 +15,12 @@
   `transcribe.bad_language`.
 - Each transcription rung that fails now leaves a `{code, message, fix}`
   warning on the transcript instead of only a stderr line.
+- Cloud STT (Groq, OpenAI) honours `--word-timestamps`: it asks for word and
+  segment granularities and attaches the returned words to their segments,
+  chunk offsets included. When a backend returns no words, the transcript
+  carries a `transcribe.cloud_no_word_timestamps` warning. The language the
+  API reports (`"english"`) is kept as a code (`en`), and a forced language
+  is sent with the request.
 
 ## DeepWatch v0.1.2 — 2026-09-08
 

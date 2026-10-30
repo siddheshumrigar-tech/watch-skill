@@ -125,7 +125,8 @@ def watch(
         "--word-timestamps",
         help="Align each word, so `get_moment` can cite the exact word rather "
         "than a segment that may run for ten seconds. Costs extra decoding "
-        "time and only applies to the local-whisper rung.",
+        "time on local whisper. Cloud STT is asked for word timings too, and "
+        "the transcript warns when a backend returns none. Captions have none.",
     ),
     language: str | None = typer.Option(
         None,
