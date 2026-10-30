@@ -12,9 +12,6 @@ from watch_skill.perceive.budget import format_time
 from watch_skill.transcribe.types import Transcript
 from watch_skill.watch import WatchResult
 
-LONG_VIDEO_WARN_SECONDS = 600
-
-
 AUDIO_ONLY_NOTE = "audio-only (no video stream; frames, scenes and OCR skipped by design)"
 
 
@@ -113,15 +110,13 @@ def render_report(result: WatchResult) -> str:
     lines = _header_lines(result)
     lines += _frames_lines(result)
 
-    if (
-        not result.focused
-        and result.metadata.duration_seconds > LONG_VIDEO_WARN_SECONDS
-        and result.perception is not None
-    ):
+    perception = result.perception
+    if not result.focused and perception is not None and perception.sampling_sparse:
         mins = int(result.metadata.duration_seconds // 60)
         lines += [
             "",
-            f"> **Warning:** this is a {mins}-minute video — frame coverage is sparse. "
+            f"> **Warning:** frame coverage is sparse: one frame every "
+            f"{perception.seconds_per_frame:.0f}s across this {mins}-minute video. "
             "Re-run focused (`--start/--end`) on the section that matters.",
         ]
 

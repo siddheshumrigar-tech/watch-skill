@@ -47,7 +47,10 @@ cases), `<data_dir>/health.jsonl` (incident log),
 |---|---|---|---|
 | `WATCHSKILL_MAX_VIDEO_HEIGHT` | int | `720` | Ceiling for downloaded video height, 144–1080. 720p answers almost every question a video can answer; 4K costs minutes of transfer and gigabytes of disk to answer it no better. Every rung of the format selector carries this cap **and** an audio stream — a video-only fallback surfaces later as a mysteriously empty transcript. A source that yt-dlp confirms has *no* audio stream is downloaded video-only and reports `audio_status: audio_unavailable`; an unanswerable probe reports `audio_unknown` and does not authorise that path. |
 | `WATCHSKILL_FRAME_WIDTH` | int | `512` | Extracted frame width in pixels. Higher = sharper OCR, more tokens per frame if sent to a vision model. |
-| `WATCHSKILL_FRAME_CAP` | int | `100` | Hard cap on frames per analysis, regardless of duration. |
+| `WATCHSKILL_FRAME_CAP` | int | `100` | Default frame cap per analysis. A full watch of a video longer than 10 minutes may grow past it (see the next two rows); an explicit `max_frames` / `--max-frames` / `budget` is always honoured exactly. |
+| `WATCHSKILL_FRAME_CAP_MAX` | int | `300` | Ceiling for the duration-scaled budget: `min(max(frame_cap, frame_cap_max), max(frame_cap, ceil(duration / long_video_seconds_per_frame)))`. One hour keeps 100 frames, two hours get 200, nothing exceeds this value. |
+| `WATCHSKILL_LONG_VIDEO_SECONDS_PER_FRAME` | float | `36.0` | Target spacing between frames for long full watches. |
+| `WATCHSKILL_SPARSE_SAMPLING_WARN_SECONDS` | float | `20.0` | A full (unfocused) watch sampled more sparsely than one frame per this many seconds carries the warning `perceive.sparse_sampling`, and the report states the measured spacing. |
 | `WATCHSKILL_MAX_FPS` | float | `2.0` | Universal sampling-rate ceiling; even focused mode never samples denser than this. |
 | `WATCHSKILL_PHASH_DISTANCE` | int | `6` | Max Hamming distance between perceptual hashes for two frames to count as near-duplicates (and be deduplicated). Lower = keep more similar frames. |
 | `WATCHSKILL_OCR_ENABLED` | bool | `true` | Run OCR on kept frames. Per-script recognition models (Arabic, Cyrillic, Korean, …) auto-download on first use. |

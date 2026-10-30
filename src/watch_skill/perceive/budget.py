@@ -5,6 +5,8 @@ mode (user named a moment) spends more per second. Universal 2 fps rate cap.
 """
 from __future__ import annotations
 
+import math
+
 from watch_skill.config import get_settings
 
 
@@ -29,9 +31,31 @@ def flow_cues(duration_seconds: float, cap: int = 20) -> list[float]:
     return [round(step * (i + 0.5), 2) for i in range(count)]
 
 
+def long_video_cap(duration_seconds: float) -> int:
+    """D8: the frame cap for an unbudgeted full watch of a long video.
+
+    ``min(max(frame_cap, frame_cap_max), max(frame_cap, ceil(duration /
+    long_video_seconds_per_frame)))``: one hour keeps the default 100, two
+    hours get 200, and nothing passes ``frame_cap_max``.
+    """
+    settings = get_settings()
+    scaled = math.ceil(duration_seconds / settings.long_video_seconds_per_frame)
+    ceiling = max(settings.frame_cap, settings.frame_cap_max)
+    return min(ceiling, max(settings.frame_cap, scaled))
+
+
 def full_budget(duration_seconds: float, max_frames: int | None = None) -> tuple[float, int]:
-    """(fps, target_frames) for a full-video scan."""
-    cap = max_frames if max_frames is not None else get_settings().frame_cap
+    """(fps, target_frames) for a full-video scan.
+
+    An explicit ``max_frames`` is honoured exactly. Without one, videos over
+    ten minutes get the duration-scaled cap from :func:`long_video_cap`.
+    """
+    if max_frames is not None:
+        cap = max_frames
+    elif duration_seconds > 600:
+        cap = long_video_cap(duration_seconds)
+    else:
+        cap = get_settings().frame_cap
     if duration_seconds <= 0:
         return 1.0, 1
     if duration_seconds <= 30:

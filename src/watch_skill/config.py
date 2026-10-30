@@ -48,7 +48,31 @@ class Settings(BaseSettings):
         "every question a video can answer; 4K costs minutes of transfer and "
         "gigabytes of disk to answer it no better. Hard-capped at 1080.",
     )
-    frame_cap: int = Field(default=100, description="Hard cap on frames per analysis.")
+    frame_cap: int = Field(
+        default=100,
+        description="Default frame cap per analysis. Full-video watches longer "
+        "than 10 minutes may grow past it (one frame per "
+        "long_video_seconds_per_frame, up to frame_cap_max); an explicit "
+        "max_frames is always honoured exactly.",
+    )
+    frame_cap_max: int = Field(
+        default=300,
+        ge=1,
+        description="Ceiling for the duration-scaled budget of long videos "
+        "(D8: a 2-hour video gets 200 frames, not 100).",
+    )
+    long_video_seconds_per_frame: float = Field(
+        default=36.0,
+        gt=0,
+        description="Target spacing for long full-video watches: frames = "
+        "duration / this, between frame_cap and frame_cap_max.",
+    )
+    sparse_sampling_warn_seconds: float = Field(
+        default=20.0,
+        gt=0,
+        description="A full (unfocused) watch sampled more sparsely than one "
+        "frame per this many seconds carries perceive.sparse_sampling.",
+    )
     max_fps: float = Field(default=2.0, description="Universal sampling rate cap.")
     phash_distance: int = Field(
         default=6, description="Max Hamming distance for perceptual-hash dedup."

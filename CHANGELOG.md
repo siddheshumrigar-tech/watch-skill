@@ -39,6 +39,14 @@
   second or every 2%. Background watch jobs map it to the `transcribe` stage
   and move between the OCR and transcribe progress values, and a job cancel
   now lands mid-transcription instead of after it.
+- The frame budget of a full watch scales with duration past 10 minutes: one
+  frame per `WATCHSKILL_LONG_VIDEO_SECONDS_PER_FRAME` (36 s) up to
+  `WATCHSKILL_FRAME_CAP_MAX` (300), so a 2-hour video gets 200 frames instead
+  of 100. An explicit `max_frames` is unchanged. Perception reports
+  `seconds_per_frame` and `sampling_sparse`, and a full watch sparser than
+  `WATCHSKILL_SPARSE_SAMPLING_WARN_SECONDS` (20 s) carries
+  `perceive.sparse_sampling`; the report states the measured spacing instead
+  of a fixed long-video note.
 
 ### Index and retrieval
 

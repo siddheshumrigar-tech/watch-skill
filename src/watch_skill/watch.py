@@ -288,6 +288,15 @@ def watch(
             start_seconds=start_seconds, end_seconds=end_seconds,
         )
 
+    if perception is not None and perception.sampling_sparse:
+        warnings.append(_warning(
+            "perceive.sparse_sampling",
+            f"one frame every {perception.seconds_per_frame:.0f}s across the whole "
+            "video; anything shorter than that may have been missed",
+            "re-run with start/end on the part that matters, or raise "
+            "WATCHSKILL_FRAME_CAP_MAX",
+        ))
+
     # A silent video already carries transcribe.no_audio from the ladder; an
     # empty transcript of something that could have speech is worth naming.
     if not transcript and (metadata.has_audio or acq.video_path is None):

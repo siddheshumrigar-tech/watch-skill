@@ -143,7 +143,6 @@ def perceive(
     """
     settings = get_settings()
     width = frame_width if frame_width is not None else settings.frame_width
-    cap = max_frames if max_frames is not None else settings.frame_cap
     do_ocr = run_ocr if run_ocr is not None else settings.ocr_enabled
 
     meta = metadata if metadata is not None else media.probe(video_path)
@@ -157,11 +156,17 @@ def perceive(
             fix="end must be greater than start and within the video duration",
         )
 
+    # max_frames may be None: the budget decides, which is what lets a long
+    # full watch grow past frame_cap (D8). An explicit cap is exact.
     pick = budget_mod.focused_budget if focused else budget_mod.full_budget
-    _, target = pick(hi - lo, max_frames=cap)
+    _, target = pick(hi - lo, max_frames=max_frames)
 
+    # Pinned cues are reserved against the larger of the cap they always had
+    # and the (possibly duration-scaled) target, so a short scripted capture
+    # keeps every interaction frame and a long video can pin more than 100.
+    cue_cap = max(target, max_frames if max_frames is not None else settings.frame_cap)
     cues = sorted({round(t, 3) for t in (cue_timestamps or []) if lo <= t <= hi})
-    cues = _even_sample(cues, cap)
+    cues = _even_sample(cues, cue_cap)
 
     scene_spans = detect_or_empty(
         video_path,
@@ -186,6 +191,7 @@ def perceive(
     if do_ocr and frames:
         _run_ocr(frames, lang=ocr_lang)
 
+    seconds_per_frame = round((hi - lo) / len(frames), 2) if frames else None
     return PerceptionResult(
         source=source_label or str(video_path),
         metadata=meta,
@@ -197,6 +203,11 @@ def perceive(
         focused=focused,
         start_seconds=start_seconds,
         end_seconds=end_seconds,
+        seconds_per_frame=seconds_per_frame,
+        sampling_sparse=bool(
+            not focused and seconds_per_frame is not None
+            and seconds_per_frame > settings.sparse_sampling_warn_seconds
+        ),
     )
 
 

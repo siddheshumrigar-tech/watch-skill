@@ -60,6 +60,10 @@ class PerceptionResult:
     focused: bool = False
     start_seconds: float | None = None
     end_seconds: float | None = None
+    # Measured coverage: window length / kept frames (None with no frames),
+    # and whether a full watch came out sparser than the warning threshold.
+    seconds_per_frame: float | None = None
+    sampling_sparse: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-safe serialization (paths as strings)."""
@@ -73,6 +77,8 @@ class PerceptionResult:
             "focused": self.focused,
             "start_seconds": self.start_seconds,
             "end_seconds": self.end_seconds,
+            "seconds_per_frame": self.seconds_per_frame,
+            "sampling_sparse": self.sampling_sparse,
             "frames": [
                 {
                     "index": f.index,
