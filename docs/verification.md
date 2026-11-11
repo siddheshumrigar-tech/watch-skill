@@ -135,7 +135,8 @@ reach for a check that was there.
 | `browser_dom` | A locator's presence, absence, visibility, text, value or attribute in a real page, loaded headless |
 | `command_exit` | A process exits with an expected code |
 | `numeric_invariant` | A number is within bounds, or equals a value within a tolerance |
-| `visual_absent` | A term does not appear in the OCR evidence |
+| `visual_absent` | A `term` does not appear in the OCR evidence. Both sides are folded the way search folds them (case, width, Arabic hamza and diacritics), and an optional `min_similarity` in (0, 1] also counts near-misses such as OCR's `NaH` for `NaN`. No OCR evidence is INCONCLUSIVE |
+| `visual_present` | A `term` does appear in the OCR evidence, with the same matching as `visual_absent`. OCR without a match is FAIL; no OCR evidence is INCONCLUSIVE |
 | `live_console` | Browser errors recorded in a live session's persisted event log |
 | `live_evidence` | A live-capture artifact is still in the rolling buffer, and its bytes digest to what was recorded |
 | `human_approval` | A named side effect was approved by a person, read from a store the acting agent cannot write |

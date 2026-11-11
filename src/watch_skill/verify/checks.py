@@ -513,6 +513,55 @@ def _numeric_invariant(check: Check, ctx: CheckContext) -> tuple[CheckStatus, An
     )
 
 
+def _similarity_threshold(value: Any) -> float | None:
+    """``min_similarity`` as a float in (0, 1], or None when not asked for."""
+    if value is None:
+        return None
+    threshold = float(value)
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError(f"min_similarity must be in (0, 1], got {value!r}")
+    return threshold
+
+
+def _text_occurrences(needle: str, lines: list[Any],
+                      min_similarity: float | None = None) -> list[str]:
+    """The lines of ``lines`` that contain ``needle``.
+
+    Both sides go through the index's search normalization, so case, width,
+    Arabic hamza and diacritic variants all match the way search would. With
+    ``min_similarity`` a line also matches when a run of as many words as the
+    needle has is at least that similar to it, which is how OCR's ``NaH``
+    still counts as ``NaN``.
+    """
+    from difflib import SequenceMatcher  # noqa: PLC0415
+
+    from watch_skill.index.textnorm import normalize_for_search  # noqa: PLC0415
+
+    target = normalize_for_search(str(needle))
+    if not target:
+        raise ValueError("the text to match is empty after normalization")
+    # Fuzzy windows compare words only: "$NaH" must be scored as "nah",
+    # not penalised for the currency sign stuck to it.
+    target_words = re.sub(r"[^\w]+", " ", target).split() or target.split()
+    width = len(target_words)
+    fuzzy_target = " ".join(target_words)
+    hits: list[str] = []
+    for line in lines:
+        text = normalize_for_search(str(line))
+        if target in text:
+            hits.append(str(line))
+            continue
+        if min_similarity is None:
+            continue
+        words = re.sub(r"[^\w]+", " ", text).split()
+        windows = [" ".join(words[i:i + width])
+                   for i in range(max(1, len(words) - width + 1))]
+        if any(SequenceMatcher(None, w, fuzzy_target).ratio() >= min_similarity
+               for w in windows):
+            hits.append(str(line))
+    return hits
+
+
 def _visual_absent(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, Any, str]:
     """A banned term must not appear in the OCR evidence.
 
@@ -520,16 +569,37 @@ def _visual_absent(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, A
     model's opinion. With no OCR evidence at all this is INCONCLUSIVE — an
     empty haystack is not proof the needle is absent.
     """
+    term = str(check.params["term"])
+    threshold = _similarity_threshold(check.params.get("min_similarity"))
     ocr_lines = ctx.evidence.get("ocr_text") or []
     if not ocr_lines:
-        return (CheckStatus.INCONCLUSIVE, f"absent: {check.params['term']}", None,
+        return (CheckStatus.INCONCLUSIVE, f"absent: {term}", None,
                 "no OCR evidence was collected, so absence cannot be established")
-    term = str(check.params["term"]).lower()
-    hits = [line for line in ocr_lines if term in str(line).lower()]
+    hits = _text_occurrences(term, ocr_lines, threshold)
     return (
         CheckStatus.FAIL if hits else CheckStatus.PASS,
         f"absent: {term}", f"{len(hits)} occurrence(s)",
         hits[0][:200] if hits else f"{term!r} not present in {len(ocr_lines)} OCR lines",
+    )
+
+
+def _visual_present(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, Any, str]:
+    """A required term must appear in the OCR evidence.
+
+    The mirror of ``visual_absent`` with the same matching. No OCR at all is
+    INCONCLUSIVE, not FAIL: nothing was read, so nothing was missing.
+    """
+    term = str(check.params["term"])
+    threshold = _similarity_threshold(check.params.get("min_similarity"))
+    ocr_lines = ctx.evidence.get("ocr_text") or []
+    if not ocr_lines:
+        return (CheckStatus.INCONCLUSIVE, f"present: {term}", None,
+                "no OCR evidence was collected, so presence cannot be established")
+    hits = _text_occurrences(term, ocr_lines, threshold)
+    return (
+        CheckStatus.PASS if hits else CheckStatus.FAIL,
+        f"present: {term}", f"{len(hits)} occurrence(s)",
+        hits[0][:200] if hits else f"{term!r} not found in {len(ocr_lines)} OCR lines",
     )
 
 
@@ -767,6 +837,7 @@ _RUNNERS: dict[str, Callable[[Check, CheckContext], tuple[CheckStatus, Any, Any,
     "command_exit": _command_exit,
     "numeric_invariant": _numeric_invariant,
     "visual_absent": _visual_absent,
+    "visual_present": _visual_present,
     "browser_dom": _browser_dom,
     "live_console": _live_console,
     "live_evidence": _live_evidence,

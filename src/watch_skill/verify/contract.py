@@ -155,6 +155,7 @@ CheckType = Literal[
     "command_exit",
     "numeric_invariant",
     "visual_absent",
+    "visual_present",
     # Oracles that read a running world rather than a file. Each one is
     # evaluated in the verifier process, read-only, against a target named in
     # the frozen contract — never against state the acting agent hands over.
