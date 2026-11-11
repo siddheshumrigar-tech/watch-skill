@@ -224,6 +224,11 @@ class Utterance:
     pcm: bytes
     media_ts: float
     overlap_seconds: float = 0.0
+    """Trailing audio carried into the NEXT utterance (0 when flushed)."""
+    leading_overlap_seconds: float = 0.0
+    """Audio at the START of this one that the previous utterance also had.
+    0 for the first utterance and for the one after a flush. Whatever is
+    recognised inside it was usually recognised once already."""
 
     @property
     def duration(self) -> float:
@@ -254,6 +259,7 @@ class UtteranceAssembler:
     _buffer: bytearray = field(default_factory=bytearray)
     _buffer_start_ts: float | None = None
     _index: int = 0
+    _leading_overlap: float = 0.0
 
     def add(self, chunk: AudioChunk) -> Utterance | None:
         """Feed a chunk; get an utterance back once enough has accumulated."""
@@ -279,17 +285,21 @@ class UtteranceAssembler:
         pcm = bytes(self._buffer)
         start = self._buffer_start_ts or 0.0
         overlap_bytes = int(BYTES_PER_SECOND * self.overlap_seconds)
+        leading = self._leading_overlap
         if keep_overlap and overlap_bytes and len(pcm) > overlap_bytes:
             tail = pcm[-overlap_bytes:]
             self._buffer = bytearray(tail)
             self._buffer_start_ts = start + (len(pcm) - overlap_bytes) / BYTES_PER_SECOND
+            self._leading_overlap = overlap_bytes / BYTES_PER_SECOND
         else:
             self._buffer = bytearray()
             self._buffer_start_ts = None
+            self._leading_overlap = 0.0
         return Utterance(
             session_id=self.session_id, index=self._index, pcm=pcm,
             media_ts=start,
             overlap_seconds=self.overlap_seconds if keep_overlap else 0.0,
+            leading_overlap_seconds=leading,
         )
 
 

@@ -40,6 +40,9 @@ class TranscriptPiece:
     final: bool = True
     language: str | None = None
     backend: str = ""
+    # Words removed from the start of ``text`` because the previous piece
+    # already heard them inside the utterance overlap.
+    overlap_trimmed_words: int = 0
 
     def to_public(self) -> dict[str, Any]:
         return {
@@ -50,6 +53,7 @@ class TranscriptPiece:
             "final": self.final,
             "language": self.language,
             "backend": self.backend,
+            "overlap_trimmed_words": self.overlap_trimmed_words,
         }
 
 

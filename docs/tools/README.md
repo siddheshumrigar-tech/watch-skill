@@ -439,6 +439,14 @@ timestamp, a confidence, and whether it is an `observation` or an
 `inference`. Evidence is referenced by `artifact_id` — never a filesystem
 path.
 
+**`speech` events.** Live audio is cut into 4 s utterances that overlap by
+0.5 s, so a word on the boundary is not lost. The words inside that overlap
+are heard twice, and the second copy is removed before the event is
+published: `detail.overlap_trimmed_words` says how many leading words were
+dropped (0 when none). Only as many words as fit in the overlap (three for
+0.5 s) can count as an echo, so a speaker repeating a longer phrase is kept. A piece that was entirely echo is not published, and
+`get_live_status` counts it under `audio.overlap_echo_dropped`.
+
 ### `ask_live`
 
 | Parameter | Type | Default | Meaning |

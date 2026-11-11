@@ -20,6 +20,7 @@ Stages, each on its own thread with a bounded queue between:
 """
 from __future__ import annotations
 
+import math
 import threading
 from typing import Any
 
@@ -31,6 +32,12 @@ from watch_skill.live.audio import (
     is_probably_silent,
 )
 from watch_skill.live.pipeline import Overflow, Pipeline
+from watch_skill.transcribe.overlap import strip_overlap_echo
+
+ECHO_WORDS_PER_SECOND = 6.0
+"""Upper bound on words spoken per second of overlap. Fast speech runs about
+four; the margin keeps a real echo trimmable without letting a whole repeated
+phrase count as one."""
 
 
 class AudioRuntime:
@@ -61,6 +68,8 @@ class AudioRuntime:
         self.utterances = 0
         self.transcribed = 0
         self.silent_skipped = 0
+        self.overlap_echo_dropped = 0
+        self._last_final_text = ""
         self.gap_seconds = 0.0
         self.last_media_ts = 0.0
         self._expected_next_ts = 0.0
@@ -159,6 +168,27 @@ class AudioRuntime:
             return
         if piece is None or not piece.text.strip():
             return
+        heard = piece.text
+        overlap = getattr(utterance, "leading_overlap_seconds", 0.0)
+        if overlap > 0 and self._last_final_text:
+            # The overlap exists so a boundary word survives; the price is
+            # that both pieces recognise the words inside it. Only as many
+            # words as fit in the overlap can be an echo: a longer match is
+            # the speaker repeating themselves, and trimming it loses speech.
+            limit = max(1, math.ceil(overlap * ECHO_WORDS_PER_SECOND))
+            trimmed, removed = strip_overlap_echo(self._last_final_text, heard,
+                                                  max_words=limit)
+            piece.text, piece.overlap_trimmed_words = trimmed, removed
+            if not trimmed.strip():
+                with self._lock:
+                    self.overlap_echo_dropped += 1
+                if piece.final:
+                    self._last_final_text = heard
+                return
+        if piece.final:
+            # Untrimmed: the next overlap is compared against what this
+            # piece actually heard at its end.
+            self._last_final_text = heard
         with self._lock:
             self.transcribed += 1
         self.on_speech(piece)
@@ -200,6 +230,7 @@ class AudioRuntime:
                 "utterances": self.utterances,
                 "transcribed": self.transcribed,
                 "silent_skipped": self.silent_skipped,
+                "overlap_echo_dropped": self.overlap_echo_dropped,
                 "gap_seconds": round(self.gap_seconds, 3),
                 "last_media_ts": round(self.last_media_ts, 3),
                 "queue_depths": self.pipeline.depths(),

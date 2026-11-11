@@ -48,6 +48,14 @@
   `perceive.sparse_sampling`; the report states the measured spacing instead
   of a fixed long-video note.
 
+### Live audio
+
+- Live speech no longer publishes the words in the 0.5 s overlap between
+  utterances twice. The repeated leading words are trimmed against the last
+  final piece (`detail.overlap_trimmed_words`), at most as many as fit in the
+  overlap, and a piece that was all echo is dropped and counted as
+  `overlap_echo_dropped` in the audio stats.
+
 ### Index and retrieval
 
 - Speaker labels and the transcript language are stored (index schema v11:

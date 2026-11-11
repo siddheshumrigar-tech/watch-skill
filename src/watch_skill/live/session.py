@@ -302,7 +302,8 @@ class RunningSession:
                 media_ts=piece.media_ts, end_media_ts=piece.end_media_ts,
             )],
             detail={"language": piece.language,
-                    "end_media_ts": round(piece.end_media_ts, 3)},
+                    "end_media_ts": round(piece.end_media_ts, 3),
+                    "overlap_trimmed_words": getattr(piece, "overlap_trimmed_words", 0)},
         ))
         # Speech is worth keeping the picture for: "what was on screen when
         # they said that" is the question this makes answerable later.
