@@ -640,6 +640,23 @@ def _directory_manifest(check: Check, ctx: CheckContext) -> tuple[CheckStatus, A
 _DOM_MODES = ("exists", "absent", "text", "attribute", "value", "visible", "enabled")
 
 
+PLAYWRIGHT_INSTALL_HINT = (
+    "install watch-skill[loop] and `playwright install chromium`"
+)
+
+
+def launch_verifier_browser(p: Any) -> Any:
+    """The verifier's own headless Chromium, shared by every browser check.
+
+    Background networking, sync and component updates are off so the page
+    under test is the only thing the browser talks to.
+    """
+    return p.chromium.launch(headless=True, args=[
+        "--disable-background-networking", "--no-first-run",
+        "--disable-component-update", "--disable-sync",
+    ])
+
+
 def _browser_dom(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, Any, str]:
     """Read one fact out of a live page, in this verifier's own browser.
 
@@ -671,14 +688,10 @@ def _browser_dom(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, Any
     except ImportError:
         return (CheckStatus.INCONCLUSIVE, expected, None,
                 "playwright is not installed, so a DOM postcondition cannot be "
-                "evaluated; install watch-skill[loop] and `playwright install "
-                "chromium`")
+                f"evaluated; {PLAYWRIGHT_INSTALL_HINT}")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=[
-            "--disable-background-networking", "--no-first-run",
-            "--disable-component-update", "--disable-sync",
-        ])
+        browser = launch_verifier_browser(p)
         try:
             page = browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -847,11 +860,16 @@ _RUNNERS: dict[str, Callable[[Check, CheckContext], tuple[CheckStatus, Any, Any,
     "human_approval": _human_approval,
 }
 
+from watch_skill.verify.failed_request import RUNNERS as _REQUEST_RUNNERS  # noqa: E402
 from watch_skill.verify.junit import RUNNERS as _JUNIT_RUNNERS  # noqa: E402
 from watch_skill.verify.transcript_checks import RUNNERS as _TRANSCRIPT_RUNNERS  # noqa: E402
 
 _RUNNERS.update(_TRANSCRIPT_RUNNERS)
 _RUNNERS.update(_JUNIT_RUNNERS)
+_RUNNERS.update(_REQUEST_RUNNERS)
+
+BROWSER_CHECK_TYPES = frozenset({"browser_dom", "failed_request"})
+"""Check types that launch the verifier's own Chromium."""
 
 SUPPORTED_CHECK_TYPES = tuple(sorted(_RUNNERS))
 

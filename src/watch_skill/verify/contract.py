@@ -166,6 +166,7 @@ CheckType = Literal[
     # evaluated in the verifier process, read-only, against a target named in
     # the frozen contract — never against state the acting agent hands over.
     "browser_dom",
+    "failed_request",
     "live_console",
     "live_evidence",
     "human_approval",

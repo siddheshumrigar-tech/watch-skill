@@ -36,7 +36,8 @@ not by how easy it is.
 
 **Verification that survives an adversary.** Today a contract can be fooled by
 a failure that never reaches any oracle. The work is more check types
-(accessibility, failed-request assertions, ingesting a test report), and
+(accessibility next; failed-request assertions and test-report ingestion
+now exist), and
 correlating them so a run is judged on the whole recording rather than its
 final frame. Every one of these narrows the gap between "the checks passed"
 and "it actually worked".
@@ -101,11 +102,11 @@ this roadmap described them as gaps.
 - **Local VLM inference is slow on CPU-only hardware.** Tens of seconds per
   inference on the 8 GiB reference class. It is asynchronous evidence, never an
   interactive path, and a session without the model continues without it.
-- **Some verification check types are still absent.** DOM locator, browser
-  console, and live evidence assertions exist. Accessibility assertions,
-  failed-request assertions, and test-report ingestion are designed and not
-  built — see [verification.md](verification.md). They are missing rather than
-  stubbed, because a check that always passes is worse than no check.
+- **Accessibility assertions are still absent.** DOM locator, browser
+  console, live evidence, failed-request and test-report checks exist.
+  Accessibility is designed and not built — see
+  [verification.md](verification.md). It is missing rather than stubbed,
+  because a check that always passes is worse than no check.
 - **`remote_attested` is defined and not implemented**, on purpose. See
   [DECISIONS.md](DECISIONS.md).
 - **Capture is not machine-tested off Windows.**
@@ -134,9 +135,8 @@ useful to a contributor as a plan.
 
 ### Verification depth
 
-- Accessibility, failed-request, and test-report check types
-  ([verification.md](verification.md)). Missing rather than stubbed: a check
-  that always passes is worse than no check.
+- An accessibility check type ([verification.md](verification.md)). Missing
+  rather than stubbed: a check that always passes is worse than no check.
 - Independent attestation for `remote_attested` — see
   [DECISIONS](DECISIONS.md) for why a digest alone does not qualify.
 - A retrieval-quality benchmark: scored (video, question, expected-evidence)

@@ -23,6 +23,7 @@ from typing import Protocol
 
 from watch_skill.errors import WatchSkillError
 from watch_skill.verify.checks import (
+    BROWSER_CHECK_TYPES,
     CheckContext,
     CheckResult,
     _sanitized_env,
@@ -94,7 +95,7 @@ class LocalIsolatedVerifier:
         # the honest reading of a budget; raising the limit so the arithmetic
         # stops complaining would only move the failure to the OS.
         lease = None
-        if any(check.type.startswith("browser_") for check in checks):
+        if any(check.type in BROWSER_CHECK_TYPES for check in checks):
             from watch_skill.live import browser_pool as pool  # noqa: PLC0415
 
             lease = pool.acquire("verifier:isolated", timeout=deadline)

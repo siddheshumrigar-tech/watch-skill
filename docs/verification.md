@@ -143,9 +143,10 @@ reach for a check that was there.
 | `visual_present` | A `term` does appear in the OCR evidence, with the same matching as `visual_absent`. OCR without a match is FAIL; no OCR evidence is INCONCLUSIVE |
 | `live_console` | Browser errors recorded in a live session's persisted event log |
 | `live_evidence` | A live-capture artifact is still in the rolling buffer, and its bytes digest to what was recorded |
+| `failed_request` | Loading `url` (in `allowed_origins`, with the same address checks as `http_request`) in the verifier's own headless browser produces at most `max_failures` (default 0) failed requests. A failure is a request that failed at the network level, a response with status at or above `min_status` (default 400), or a page that would not load. `include` / `exclude` are regexes searched in each request URL. It waits `wait_ms` (default 2000) after `load` for late requests. `observed` lists up to 20 `{url, status, failure}`. Without Playwright it is INCONCLUSIVE |
 | `human_approval` | A named side effect was approved by a person, read from a store the acting agent cannot write |
 
-Still absent: accessibility assertions and test-report ingestion. Absent rather
+Still absent: accessibility assertions. Absent rather
 than stubbed, because a check that always passes is worse than no check.
 
 Three of them can only answer INCONCLUSIVE where a weaker design would answer
