@@ -139,6 +139,7 @@ reach for a check that was there.
 | `transcript_contains` | A `phrase` was said in an indexed video's transcript, optionally inside `start`/`end`. See [Transcript checks](#transcript-checks) |
 | `transcript_absent` | A `phrase` was not said in the window |
 | `speaker_said` | A diarized `speaker` said the `phrase` in the window |
+| `test_report` | A JUnit XML report (`path`, inside the allowed roots) shows at most `max_failed` (default 0) failed or errored cases, at least `min_passed` (default 1) passed, and every name in `required_tests` passed. Names match as `classname.name`, `classname::name` or bare `name`. Counts come from the `<testcase>` elements, not the suite attributes. `observed` gives `passed`, `failed`, `errored`, `skipped`, `total`, `missing_required` and `failed_required`. A missing report or one with no cases is INCONCLUSIVE; a report with a DOCTYPE or ENTITY, or larger than `max_bytes` (default 20 MB), is refused |
 | `visual_present` | A `term` does appear in the OCR evidence, with the same matching as `visual_absent`. OCR without a match is FAIL; no OCR evidence is INCONCLUSIVE |
 | `live_console` | Browser errors recorded in a live session's persisted event log |
 | `live_evidence` | A live-capture artifact is still in the rolling buffer, and its bytes digest to what was recorded |

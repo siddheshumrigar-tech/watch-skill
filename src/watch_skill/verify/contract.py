@@ -160,6 +160,8 @@ CheckType = Literal[
     "transcript_contains",
     "transcript_absent",
     "speaker_said",
+    # Reads a JUnit XML report (verify/junit.py).
+    "test_report",
     # Oracles that read a running world rather than a file. Each one is
     # evaluated in the verifier process, read-only, against a target named in
     # the frozen contract — never against state the acting agent hands over.

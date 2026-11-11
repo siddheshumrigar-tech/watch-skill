@@ -847,9 +847,11 @@ _RUNNERS: dict[str, Callable[[Check, CheckContext], tuple[CheckStatus, Any, Any,
     "human_approval": _human_approval,
 }
 
+from watch_skill.verify.junit import RUNNERS as _JUNIT_RUNNERS  # noqa: E402
 from watch_skill.verify.transcript_checks import RUNNERS as _TRANSCRIPT_RUNNERS  # noqa: E402
 
 _RUNNERS.update(_TRANSCRIPT_RUNNERS)
+_RUNNERS.update(_JUNIT_RUNNERS)
 
 SUPPORTED_CHECK_TYPES = tuple(sorted(_RUNNERS))
 
