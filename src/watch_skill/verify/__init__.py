@@ -151,6 +151,7 @@ def verify_run(
         allowed_roots=[str(Path(r).resolve()) for r in (allowed_roots or [work])],
         allowed_origins=allowed_origins or [],
         evidence=evidence or {},
+        index_path=_index_path(),
     )
 
     backend = get_verifier(isolated=isolated)
@@ -191,6 +192,14 @@ def verify_run(
     attestation = attest(bundle, signer)
     _persist(run_id, contract, bundle, attestation)
     return bundle, attestation
+
+
+def _index_path() -> str | None:
+    """This process's index file, if there is one, for the transcript checks."""
+    from watch_skill.config import get_settings  # noqa: PLC0415
+
+    path = get_settings().index_path
+    return str(path) if path.is_file() else None
 
 
 def _backend_assurance(isolated: bool) -> Assurance:

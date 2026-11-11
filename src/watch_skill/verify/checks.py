@@ -65,6 +65,9 @@ class CheckContext(BaseModel):
     allowed_roots: list[str] = Field(default_factory=list)
     allowed_origins: list[str] = Field(default_factory=list)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    # The Watch Skill index the transcript checks read, named by the parent:
+    # the isolated child does not inherit WATCHSKILL_DATA_DIR.
+    index_path: str | None = None
 
 
 # --- path safety ------------------------------------------------------------
@@ -843,6 +846,10 @@ _RUNNERS: dict[str, Callable[[Check, CheckContext], tuple[CheckStatus, Any, Any,
     "live_evidence": _live_evidence,
     "human_approval": _human_approval,
 }
+
+from watch_skill.verify.transcript_checks import RUNNERS as _TRANSCRIPT_RUNNERS  # noqa: E402
+
+_RUNNERS.update(_TRANSCRIPT_RUNNERS)
 
 SUPPORTED_CHECK_TYPES = tuple(sorted(_RUNNERS))
 
