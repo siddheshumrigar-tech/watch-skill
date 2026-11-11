@@ -73,7 +73,14 @@ class AudioRuntime:
         self.transcribed = 0
         self.silent_skipped = 0
         self.overlap_echo_dropped = 0
+        self.provisional_published = 0
+        self._provisional_sent: set[int] = set()
         self._last_final_text = ""
+        from watch_skill.config import get_settings  # noqa: PLC0415
+
+        settings = get_settings()
+        self._provisional_enabled = settings.live_provisional_speech
+        self._provisional_after = settings.live_provisional_after_seconds
         self.gap_seconds = 0.0
         self.last_media_ts = 0.0
         self._expected_next_ts = 0.0
@@ -153,6 +160,7 @@ class AudioRuntime:
     def _assemble(self, chunk: AudioChunk) -> None:
         utterance = self._assembler.add(chunk)
         if utterance is None:
+            self._offer_provisional()
             return
         with self._lock:
             self.utterances += 1
@@ -161,6 +169,20 @@ class AudioRuntime:
                 self.silent_skipped += 1
             return
         self._transcribe_stage.put(utterance)
+
+    def _offer_provisional(self) -> None:
+        """Queue an early guess at the utterance still accumulating.
+
+        A final piece waits for the whole 4 s utterance; a listener watching
+        live would otherwise hear nothing for that long after someone starts
+        talking. It goes through the same gate and the same FIFO stage, so it
+        is always transcribed before its own final piece.
+        """
+        if not self._provisional_enabled:
+            return
+        early = self._assembler.peek_provisional(self._provisional_after)
+        if early is not None and self._gate.is_speech(early.pcm):
+            self._transcribe_stage.put(early)
 
     def _transcribe(self, utterance: Any) -> None:
         if self.backend is None:
@@ -172,6 +194,9 @@ class AudioRuntime:
             return
         if piece is None or not piece.text.strip():
             return
+        provisional = bool(getattr(utterance, "provisional", False))
+        piece.final = not provisional
+        piece.utterance_index = getattr(utterance, "index", 0)
         heard = piece.text
         overlap = getattr(utterance, "leading_overlap_seconds", 0.0)
         if overlap > 0 and self._last_final_text:
@@ -184,17 +209,28 @@ class AudioRuntime:
                                                   max_words=limit)
             piece.text, piece.overlap_trimmed_words = trimmed, removed
             if not trimmed.strip():
-                with self._lock:
-                    self.overlap_echo_dropped += 1
                 if piece.final:
+                    with self._lock:
+                        self.overlap_echo_dropped += 1
                     self._last_final_text = heard
                 return
-        if piece.final:
-            # Untrimmed: the next overlap is compared against what this
-            # piece actually heard at its end.
-            self._last_final_text = heard
+        self._publish(piece, heard)
+
+    def _publish(self, piece: Any, heard: str) -> None:
+        """Hand a piece on, and keep the bookkeeping provisional pieces need."""
         with self._lock:
-            self.transcribed += 1
+            if piece.final:
+                # Untrimmed: the next overlap is compared against what this
+                # piece actually heard at its end. A provisional piece never
+                # sets it; its final piece will.
+                self._last_final_text = heard
+                piece.supersedes_provisional = (
+                    piece.utterance_index in self._provisional_sent)
+                self._provisional_sent.discard(piece.utterance_index)
+                self.transcribed += 1
+            else:
+                self._provisional_sent.add(piece.utterance_index)
+                self.provisional_published += 1
         self.on_speech(piece)
 
     # --- diagnostics -------------------------------------------------------
@@ -241,6 +277,7 @@ class AudioRuntime:
                 "transcribed": self.transcribed,
                 "silent_skipped": self.silent_skipped,
                 "overlap_echo_dropped": self.overlap_echo_dropped,
+                "provisional_published": self.provisional_published,
                 "gap_seconds": round(self.gap_seconds, 3),
                 "last_media_ts": round(self.last_media_ts, 3),
                 "queue_depths": self.pipeline.depths(),

@@ -18,6 +18,15 @@ from watch_skill.live.audio import SAMPLE_RATE, AudioChunk, UtteranceAssembler
 from watch_skill.transcribe.overlap import strip_overlap_echo
 
 
+@pytest.fixture(autouse=True)
+def _finals_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests count final pieces; provisional ones are covered elsewhere."""
+    from watch_skill.config import reset_settings
+
+    monkeypatch.setenv("WATCHSKILL_LIVE_PROVISIONAL_SPEECH", "false")
+    reset_settings()
+
+
 @pytest.mark.parametrize(
     ("previous", "current", "expected"),
     [

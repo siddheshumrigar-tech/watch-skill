@@ -62,6 +62,11 @@
   `audio.speech_gate` and `audio.speech_gate_fallback_reason`; the
   `WATCHSKILL_LIVE_SPEECH_GATE` setting (`auto` | `silero` | `energy`) forces
   a choice.
+- Live speech publishes a provisional event (`final: false`) after 2 s of an
+  utterance, before the final event for the same `detail.utterance_index`,
+  which carries `detail.supersedes_provisional`. Live ask and finalized
+  sessions ignore provisional events. Settings:
+  `WATCHSKILL_LIVE_PROVISIONAL_SPEECH`, `WATCHSKILL_LIVE_PROVISIONAL_AFTER_SECONDS`.
 
 ### Index and retrieval
 

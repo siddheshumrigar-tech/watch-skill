@@ -301,13 +301,27 @@ class RunningSession:
                 kind="transcript", artifact_id=f"utt_{piece.media_ts:.2f}",
                 media_ts=piece.media_ts, end_media_ts=piece.end_media_ts,
             )],
-            detail={"language": piece.language,
-                    "end_media_ts": round(piece.end_media_ts, 3),
-                    "overlap_trimmed_words": getattr(piece, "overlap_trimmed_words", 0)},
+            detail=self._speech_detail(piece),
         ))
         # Speech is worth keeping the picture for: "what was on screen when
-        # they said that" is the question this makes answerable later.
-        buf.pin_window(self.session.session_id, piece.media_ts, before=2.0, after=2.0)
+        # they said that" is the question this makes answerable later. Only
+        # once, for the final piece: the provisional one covers the same span.
+        if piece.final:
+            buf.pin_window(self.session.session_id, piece.media_ts, before=2.0, after=2.0)
+
+    @staticmethod
+    def _speech_detail(piece: Any) -> dict[str, Any]:
+        """Event detail for a speech piece, every key always present."""
+        detail = {
+            "language": piece.language,
+            "end_media_ts": round(piece.end_media_ts, 3),
+            "overlap_trimmed_words": getattr(piece, "overlap_trimmed_words", 0),
+            "utterance_index": getattr(piece, "utterance_index", 0),
+            "provisional": not piece.final,
+            # True on a final piece whose provisional guess was published.
+            "supersedes_provisional": bool(getattr(piece, "supersedes_provisional", False)),
+        }
+        return detail
 
     def _start_semantic(self) -> None:
         """Bring up semantic interpretation, if anything is configured.

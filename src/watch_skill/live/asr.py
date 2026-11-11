@@ -43,6 +43,10 @@ class TranscriptPiece:
     # Words removed from the start of ``text`` because the previous piece
     # already heard them inside the utterance overlap.
     overlap_trimmed_words: int = 0
+    # Which utterance this piece transcribes. A provisional piece and the
+    # final piece that replaces it share it.
+    utterance_index: int = 0
+    supersedes_provisional: bool = False
 
     def to_public(self) -> dict[str, Any]:
         return {
@@ -54,6 +58,8 @@ class TranscriptPiece:
             "language": self.language,
             "backend": self.backend,
             "overlap_trimmed_words": self.overlap_trimmed_words,
+            "utterance_index": self.utterance_index,
+            "supersedes_provisional": self.supersedes_provisional,
         }
 
 

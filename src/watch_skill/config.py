@@ -111,6 +111,18 @@ class Settings(BaseSettings):
         "amplitude threshold, 'auto' Silero when importable. Silero falls "
         "back to energy (and says why in live status) when it cannot run.",
     )
+    live_provisional_speech: bool = Field(
+        default=True,
+        description="Publish a provisional live speech event (final=false) "
+        "once live_provisional_after_seconds of an utterance have been heard, "
+        "before the final piece for the same utterance.",
+    )
+    live_provisional_after_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        description="Audio an utterance must hold before its provisional "
+        "speech event is transcribed.",
+    )
     huggingface_token: SecretStr | None = Field(
         default=None, description="Hugging Face token for gated pyannote diarization models."
     )

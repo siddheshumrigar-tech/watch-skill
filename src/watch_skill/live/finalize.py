@@ -31,7 +31,6 @@ def finalize_session(session_id: str, ctx: Any = None) -> str:
     from watch_skill.acquire.types import AcquireResult
     from watch_skill.index.store import index_watch_result
     from watch_skill.perceive.types import Frame, OcrBlock, PerceptionResult, VideoMetadata
-    from watch_skill.transcribe.types import Segment, Transcript
     from watch_skill.watch import WatchResult
 
     session = db.get_session(session_id)
@@ -85,18 +84,7 @@ def finalize_session(session_id: str, ctx: Any = None) -> str:
         duration_seconds=duration, width=None, height=None, fps=session.spec.fps,
         codec=None, has_audio=False,
     )
-    # The event log becomes the transcript-shaped record: it is what the
-    # session actually observed, with timestamps, and it makes the session
-    # searchable through exactly the same path as a spoken transcript.
-    transcript = Transcript(
-        segments=[
-            Segment(event.media_ts, event.media_ts + 1.0,
-                    f"[{event.type.value}] {event.summary}")
-            for event in events
-            if event.summary and event.type is not LiveEventType.SESSION_STARTED
-        ],
-        source="live-events",
-    )
+    transcript = _events_to_transcript(events)
 
     label = f"live:{session.spec.kind.value}:{session_id}"
     acquisition = AcquireResult(
@@ -131,3 +119,25 @@ def finalize_session(session_id: str, ctx: Any = None) -> str:
     if ctx is not None:
         ctx.checkpoint(progress=0.95)
     return video_id
+
+
+def _events_to_transcript(events: list[Any]) -> Any:
+    """The event log as a transcript-shaped record of what the session saw.
+
+    It makes the session searchable through exactly the same path as a
+    spoken transcript. Only final events count: a provisional speech piece
+    is a first guess that its final piece replaced, and indexing both would
+    store the same words twice, one copy possibly wrong.
+    """
+    from watch_skill.transcribe.types import Segment, Transcript  # noqa: PLC0415
+
+    return Transcript(
+        segments=[
+            Segment(event.media_ts, event.media_ts + 1.0,
+                    f"[{event.type.value}] {event.summary}")
+            for event in events
+            if event.final and event.summary
+            and event.type is not LiveEventType.SESSION_STARTED
+        ],
+        source="live-events",
+    )

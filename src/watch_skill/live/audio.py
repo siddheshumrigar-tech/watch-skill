@@ -229,6 +229,9 @@ class Utterance:
     """Audio at the START of this one that the previous utterance also had.
     0 for the first utterance and for the one after a flush. Whatever is
     recognised inside it was usually recognised once already."""
+    provisional: bool = False
+    """A partial copy of an utterance still accumulating. Its transcript is a
+    first guess; the final utterance with the same ``index`` replaces it."""
 
     @property
     def duration(self) -> float:
@@ -260,6 +263,25 @@ class UtteranceAssembler:
     _buffer_start_ts: float | None = None
     _index: int = 0
     _leading_overlap: float = 0.0
+    _provisional_offered: bool = False
+
+    def peek_provisional(self, after_seconds: float) -> Utterance | None:
+        """A copy of the pending audio once it holds ``after_seconds``.
+
+        At most once per pending utterance, so a listener gets one early
+        guess and then the final piece, not a stream of revisions.
+        """
+        if self._provisional_offered:
+            return None
+        if len(self._buffer) < int(BYTES_PER_SECOND * after_seconds):
+            return None
+        self._provisional_offered = True
+        return Utterance(
+            session_id=self.session_id, index=self._index + 1,
+            pcm=bytes(self._buffer), media_ts=self._buffer_start_ts or 0.0,
+            leading_overlap_seconds=self._leading_overlap, provisional=True,
+        )
+
     def add(self, chunk: AudioChunk) -> Utterance | None:
         """Feed a chunk; get an utterance back once enough has accumulated."""
         if self._buffer_start_ts is None:
@@ -281,6 +303,7 @@ class UtteranceAssembler:
 
     def _emit(self, keep_overlap: bool = True) -> Utterance:
         self._index += 1
+        self._provisional_offered = False
         pcm = bytes(self._buffer)
         start = self._buffer_start_ts or 0.0
         overlap_bytes = int(BYTES_PER_SECOND * self.overlap_seconds)

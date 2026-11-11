@@ -446,6 +446,15 @@ published: `detail.overlap_trimmed_words` says how many leading words were
 dropped (0 when none). Only as many words as fit in the overlap (three for
 0.5 s) can count as an echo, so a speaker repeating a longer phrase is kept.
 
+**Provisional speech.** Once 2 s of an utterance have been heard, a first
+guess is published as a `speech` event with `final: false` and
+`detail.provisional: true`. The final event for the same utterance follows
+with `final: true`, the same `detail.utterance_index`, and
+`detail.supersedes_provisional: true`. Treat a provisional event as a hint:
+`ask_live` and finalized sessions use only final events. Turn it off with
+`WATCHSKILL_LIVE_PROVISIONAL_SPEECH=false`; `WATCHSKILL_LIVE_PROVISIONAL_AFTER_SECONDS`
+moves the 2 s threshold.
+
 Before an utterance reaches the speech model it passes a speech gate. The
 default is the Silero VAD that ships inside faster-whisper; without it, or if
 it fails, a loudness threshold decides instead, and that threshold drops
