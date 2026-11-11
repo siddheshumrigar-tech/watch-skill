@@ -272,10 +272,113 @@ def _json_schema(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, Any
     return (CheckStatus.PASS, "schema valid", "schema valid", "document matches schema")
 
 
-_WRITE_KEYWORDS = (
-    "insert", "update", "delete", "drop", "alter", "create", "replace",
-    "attach", "detach", "pragma", "vacuum", "reindex", "begin", "commit",
-)
+_READ_VERBS = frozenset({"select", "values"})
+_SQL_QUOTES = {"'": "'", '"': '"', "`": "`", "[": "]"}
+_SQL_PUNCTUATION = frozenset("(),;")
+
+
+def _skip_quoted(sql: str, i: int) -> int:
+    """Index just past the literal or quoted identifier opening at ``i``."""
+    close = _SQL_QUOTES[sql[i]]
+    j = i + 1
+    while True:
+        j = sql.find(close, j)
+        if j < 0:
+            raise ValueError("unterminated string literal or quoted identifier")
+        if close != "]" and sql.startswith(close * 2, j):
+            j += 2  # '' and "" are escapes, not the end
+            continue
+        return j + 1
+
+
+def _sql_tokens(sql: str) -> list[str]:
+    """Lowercase words and ``( ) , ;`` of ``sql``, with comments, string
+    literals and quoted identifiers removed.
+
+    Removing them is the point: ``'drop table x'`` is data and ``"replace"``
+    is a column name, and neither may look like a statement to the screen.
+    """
+    tokens: list[str] = []
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if sql.startswith("--", i):
+            end = sql.find("\n", i)
+            i = n if end < 0 else end + 1
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif ch in _SQL_QUOTES:
+            i = _skip_quoted(sql, i)
+        elif ch.isalpha() or ch == "_":
+            j = i + 1
+            while j < n and (sql[j].isalnum() or sql[j] in "_$"):
+                j += 1
+            tokens.append(sql[i:j].lower())
+            i = j
+        else:
+            if ch in _SQL_PUNCTUATION:
+                tokens.append(ch)
+            i += 1
+    return tokens
+
+
+def _skip_parens(tokens: list[str], i: int) -> int:
+    """Index just past the balanced group opening at ``tokens[i] == '('``."""
+    depth = 0
+    for j in range(i, len(tokens)):
+        depth += {"(": 1, ")": -1}.get(tokens[j], 0)
+        if depth == 0:
+            return j + 1
+    return len(tokens)
+
+
+def _statement_verb(tokens: list[str]) -> str:
+    """The main verb, after any ``WITH [RECURSIVE] name [(cols)] AS
+    [NOT] [MATERIALIZED] (...) [, ...]`` prefix. Empty when there is none."""
+    if not tokens:
+        return ""
+    if tokens[0] != "with":
+        return tokens[0]
+    i = 2 if len(tokens) > 1 and tokens[1] == "recursive" else 1
+    while i < len(tokens):
+        i += 1  # the CTE name
+        if i < len(tokens) and tokens[i] == "(":
+            i = _skip_parens(tokens, i)
+        if i >= len(tokens) or tokens[i] != "as":
+            return ""
+        i += 1
+        if i < len(tokens) and tokens[i] == "not":
+            i += 1
+        if i < len(tokens) and tokens[i] == "materialized":
+            i += 1
+        if i >= len(tokens) or tokens[i] != "(":
+            return ""
+        i = _skip_parens(tokens, i)
+        if i < len(tokens) and tokens[i] == ",":
+            i += 1
+            continue
+        return tokens[i] if i < len(tokens) else ""
+    return ""
+
+
+def _screen_read_only(sql: str) -> None:
+    """Refuse anything but one SELECT / VALUES statement.
+
+    A screen, not the guarantee: the ``mode=ro`` handle is what makes a write
+    impossible. The screen exists so a write is refused with a clear reason
+    instead of a driver error.
+    """
+    tokens = _sql_tokens(sql)
+    while tokens and tokens[-1] == ";":
+        tokens.pop()
+    if ";" in tokens:
+        raise ValueError("a verification query must be a single statement")
+    verb = _statement_verb(tokens)
+    if verb not in _READ_VERBS:
+        raise ValueError(
+            f"only SELECT, VALUES or WITH ... SELECT queries may be verified "
+            f"(statement verb: {verb or 'none'!r})")
 
 
 def read_only_sqlite_uri(path: Path) -> str:
@@ -294,14 +397,8 @@ def read_only_sqlite_uri(path: Path) -> str:
 
 
 def _sqlite_query(check: Check, ctx: CheckContext) -> tuple[CheckStatus, Any, Any, str]:
-    sql = str(check.params["sql"]).strip().rstrip(";")
-    lowered = sql.lower()
-    if not lowered.startswith("select") and not lowered.startswith("with"):
-        raise ValueError("only SELECT (or WITH ... SELECT) queries may be verified")
-    if ";" in sql:
-        raise ValueError("a verification query must be a single statement")
-    if any(f" {word} " in f" {lowered} " for word in _WRITE_KEYWORDS):
-        raise ValueError(f"query contains a write keyword: {sql[:80]!r}")
+    sql = str(check.params["sql"]).strip()
+    _screen_read_only(sql)
 
     path = _resolve_within(str(check.params["database"]), ctx)
     uri = read_only_sqlite_uri(path)

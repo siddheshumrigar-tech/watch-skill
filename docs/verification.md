@@ -130,7 +130,7 @@ reach for a check that was there.
 | `directory_manifest` | A directory holds exactly the files it should; missing and unexpected are reported apart, because one is work that did not happen and the other is work nobody described |
 | `json_value` | A JSON Pointer (RFC 6901) resolves to an expected value |
 | `json_schema` | A document validates against a schema |
-| `sqlite_query` | A parameterised SELECT returns expected rows or a row count |
+| `sqlite_query` | A parameterised SELECT returns expected rows or a row count. One `SELECT`, `VALUES` or `WITH ... SELECT` statement only, judged by its verb after comments, string literals and quoted identifiers are removed (so a column named `replace` is fine), and run over a `mode=ro` handle |
 | `http_request` | Method/status/headers/body against an allowlisted origin |
 | `browser_dom` | A locator's presence, absence, visibility, text, value or attribute in a real page, loaded headless |
 | `command_exit` | A process exits with an expected code |
