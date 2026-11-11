@@ -142,14 +142,13 @@ class LocalWhisperASR:
             return WhisperModel(size, device="auto", compute_type="int8",
                                 local_files_only=True)
         except Exception as exc:  # noqa: BLE001 - reported, never a download
+            command = f"watch-skill models pull asr --size {size}"
             raise WatchSkillError(
                 f"the local speech model {size!r} is not in the cache",
                 code="models.not_cached",
-                fix="fetch it once, deliberately, before watching: "
-                    f'`python -c "from faster_whisper import WhisperModel; '
-                    f"WhisperModel('{size}')\"`. A live session will not "
-                    "download it for you.",
-                details={"model": size, "error": str(exc)[:200]},
+                fix=f"run `{command}` once before watching; a live session "
+                    "will not download it for you",
+                details={"model": size, "command": command, "error": str(exc)[:200]},
             ) from exc
         finally:
             if previous is None:
@@ -161,24 +160,12 @@ class LocalWhisperASR:
     def _auto_size() -> str:
         """Pick a model the machine can actually hold.
 
-        Live transcription competes with OCR and embeddings for memory, so
-        this is deliberately more conservative than the batch path: being a
-        little less accurate beats being killed by the allocator mid-session.
+        Shared with ``watch-skill models pull asr``, so the model it caches
+        is the one a session will ask for.
         """
-        from watch_skill.config import get_settings  # noqa: PLC0415
+        from watch_skill.models.asr_cache import live_asr_model_size  # noqa: PLC0415
 
-        configured = get_settings().whisper_model
-        if configured and configured != "auto":
-            return configured
-        try:
-            import psutil  # noqa: PLC0415
-
-            available_gb = psutil.virtual_memory().available / 1024**3
-        except Exception:  # noqa: BLE001
-            return "tiny"
-        if available_gb >= 8:
-            return "small"
-        return "base" if available_gb >= 4 else "tiny"
+        return live_asr_model_size()
 
     def transcribe(self, utterance: Utterance) -> TranscriptPiece | None:
         import tempfile

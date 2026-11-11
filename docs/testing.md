@@ -61,6 +61,7 @@ A third route exists: one explicit bootstrap of a single free local model.
 ```bash
 watch-skill models status          # what this machine could run
 watch-skill models bootstrap-vlm   # explicit, opt-in, one model
+watch-skill models pull asr --dry-run   # would the live speech model download?
 ```
 
 It downloads `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` (Apache-2.0) into

@@ -446,6 +446,19 @@ published: `detail.overlap_trimmed_words` says how many leading words were
 dropped (0 when none). Only as many words as fit in the overlap (three for
 0.5 s) can count as an echo, so a speaker repeating a longer phrase is kept.
 
+**The speech model is never downloaded by a session.** If it is not cached,
+`detectors.asr` reports `models.not_cached` and the session stays
+visual-only. Cache it once, before watching:
+
+```bash
+watch-skill models pull asr            # the size a live session here would load
+watch-skill models pull asr --size base --dry-run
+```
+
+The command prints `{"status", "model", "path", "seconds"}`, where `status` is
+`downloaded`, `already_cached` or `would_download`. Offline mode refuses with
+`models.offline_refused`.
+
 **Provisional speech.** Once 2 s of an utterance have been heard, a first
 guess is published as a `speech` event with `final: false` and
 `detail.provisional: true`. The final event for the same utterance follows

@@ -405,6 +405,38 @@ def models_bootstrap_vlm_cmd(
         raise typer.Exit(code=1) from None
 
 
+@models_app.command("pull")
+def models_pull_cmd(
+    kind: str = typer.Argument(..., help="What to pre-cache. Only `asr` today."),
+    size: str | None = typer.Option(
+        None, "--size", help="Whisper size (tiny, base, small, ...). Default: "
+        "what a live session on this machine would load."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report only; download nothing."),
+) -> None:
+    """Pre-cache a model a live session needs. Prints JSON.
+
+    A live session never downloads its speech model, so this is the one
+    deliberate step that does, once, before watching.
+    """
+    from watch_skill.errors import WatchSkillError
+    from watch_skill.models.asr_cache import pull_asr_model
+
+    if kind != "asr":
+        print(json.dumps({
+            "error": "models.unknown_kind",
+            "message": f"unknown model kind {kind!r}",
+            "fix": "use `watch-skill models pull asr`; the vision model has "
+                   "its own command, `watch-skill models bootstrap-vlm`",
+            "details": {"kind": kind, "known": ["asr"]},
+        }, indent=2))
+        raise typer.Exit(code=2)
+    try:
+        print(json.dumps(pull_asr_model(size=size, dry_run=dry_run), indent=2))
+    except WatchSkillError as exc:
+        print(json.dumps(exc.to_dict(), indent=2))
+        raise typer.Exit(code=1) from None
+
+
 live_app = typer.Typer(help="Watch something as it happens.")
 app.add_typer(live_app, name="live")
 

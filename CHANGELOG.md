@@ -62,6 +62,11 @@
   `audio.speech_gate` and `audio.speech_gate_fallback_reason`; the
   `WATCHSKILL_LIVE_SPEECH_GATE` setting (`auto` | `silero` | `energy`) forces
   a choice.
+- `watch-skill models pull asr [--size SIZE] [--dry-run]` pre-caches the
+  speech model a live session loads and prints JSON. It refuses in offline
+  mode (`models.offline_refused`). The `models.not_cached` error a live
+  session raises now names this command in its `fix` and in
+  `details.command`.
 - Live speech publishes a provisional event (`final: false`) after 2 s of an
   utterance, before the final event for the same `detail.utterance_index`,
   which carries `detail.supersedes_provisional`. Live ask and finalized
