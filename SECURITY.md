@@ -35,6 +35,21 @@ that violates any of them is a security bug, not a feature:
    that it is denied by construction and an added integration cannot slip past
    it. Watch Skill sends no usage data.
 
+## Binaries `doctor` downloads
+
+`watch-skill doctor` can install yt-dlp, ffmpeg/ffprobe and deno into the
+managed bin dir. Each download is hashed while it streams and compared with
+the SHA-256 its publisher lists: yt-dlp's `SHA2-256SUMS`, gyan.dev's
+`<zip>.sha256`, BtbN's `checksums.sha256`, deno's `<zip>.sha256sum`. A
+mismatch installs nothing and fails with `health.checksum_mismatch`.
+
+Two cases are weaker, and both are recorded rather than hidden. evermeet.cx
+(the macOS ffmpeg builds) publishes no checksum file, and a source whose
+checksum URL returns 404 cannot be checked; these downloads are installed and
+written to `<bin_dir>/downloads.json` with `"verified": false`, and `doctor`
+reports them under `download-integrity`. Tesseract `traineddata` files are
+not checked: `tesseract-ocr/tessdata_fast` publishes no checksums.
+
 ## Verification safety
 
 `watch-skill verify` executes contract checks. Its rules are in

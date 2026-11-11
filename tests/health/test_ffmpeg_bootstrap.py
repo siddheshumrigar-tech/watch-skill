@@ -40,6 +40,14 @@ def _macos_zip(path: Path, name: str) -> None:
         zf.writestr(name, f"#!/bin/sh\necho {name}\n")
 
 
+@pytest.fixture(autouse=True)
+def _no_published_checksum(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests are about extraction; checksum verification has its own
+    tests in test_binaries.py. Without this the checksum lookup is a real
+    request."""
+    monkeypatch.setattr(binaries, "_published_sha256", lambda url, asset: None)
+
+
 @pytest.fixture()
 def bin_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     from watch_skill import config
@@ -50,7 +58,7 @@ def bin_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_linux_tarball_yields_both_binaries(bin_dir, monkeypatch) -> None:
-    def fake_download(url: str, dest: Path, timeout: float = 600.0) -> Path:
+    def fake_download(url: str, dest: Path, timeout: float = 600.0, **kwargs) -> Path:
         assert "linux" in url, f"asked for the wrong asset: {url}"
         _linux_tarball(dest)
         return dest
@@ -67,7 +75,7 @@ def test_linux_tarball_yields_both_binaries(bin_dir, monkeypatch) -> None:
 def test_extracted_linux_binaries_are_executable(bin_dir, monkeypatch) -> None:
     """Without the executable bit an extracted binary cannot be run."""
     monkeypatch.setattr(
-        binaries, "_download_file", lambda url, dest, timeout=600.0: (_linux_tarball(dest), dest)[1]
+        binaries, "_download_file", lambda url, dest, timeout=600.0, **kw: (_linux_tarball(dest), dest)[1]
     )
     monkeypatch.setattr(binaries.platform, "machine", lambda: "x86_64")
     ffmpeg, ffprobe = binaries._bootstrap_ffmpeg_linux(bin_dir)
@@ -77,7 +85,7 @@ def test_extracted_linux_binaries_are_executable(bin_dir, monkeypatch) -> None:
 
 def test_the_downloaded_archive_is_cleaned_up(bin_dir, monkeypatch) -> None:
     monkeypatch.setattr(
-        binaries, "_download_file", lambda url, dest, timeout=600.0: (_linux_tarball(dest), dest)[1]
+        binaries, "_download_file", lambda url, dest, timeout=600.0, **kw: (_linux_tarball(dest), dest)[1]
     )
     monkeypatch.setattr(binaries.platform, "machine", lambda: "x86_64")
     binaries._bootstrap_ffmpeg_linux(bin_dir)
@@ -89,7 +97,7 @@ def test_an_incomplete_tarball_is_a_structured_error(bin_dir, monkeypatch) -> No
     monkeypatch.setattr(
         binaries,
         "_download_file",
-        lambda url, dest, timeout=600.0: (_linux_tarball(dest, names=("ffmpeg",)), dest)[1],
+        lambda url, dest, timeout=600.0, **kw: (_linux_tarball(dest, names=("ffmpeg",)), dest)[1],
     )
     monkeypatch.setattr(binaries.platform, "machine", lambda: "x86_64")
     with pytest.raises(DependencyError) as exc:
@@ -119,7 +127,7 @@ def test_macos_fetches_ffmpeg_and_ffprobe_separately(bin_dir, monkeypatch) -> No
     """evermeet.cx ships one zip per tool, so both must be requested."""
     asked: list[str] = []
 
-    def fake_download(url: str, dest: Path, timeout: float = 600.0) -> Path:
+    def fake_download(url: str, dest: Path, timeout: float = 600.0, **kwargs) -> Path:
         tool = "ffprobe" if "ffprobe" in url else "ffmpeg"
         asked.append(tool)
         _macos_zip(dest, tool)
@@ -159,7 +167,7 @@ def test_every_extracted_linux_binary_is_asked_to_be_executable(
 
     monkeypatch.setattr(
         binaries, "_download_file",
-        lambda url, dest, timeout=600.0: (_linux_tarball(dest), dest)[1])
+        lambda url, dest, timeout=600.0, **kw: (_linux_tarball(dest), dest)[1])
     monkeypatch.setattr(binaries.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(Path, "chmod", recording_chmod)
 

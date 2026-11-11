@@ -26,6 +26,20 @@ that launched your agent. Watch Skill prefers its own managed copy:
 surface prepends that directory to PATH, so the managed copy wins
 regardless of shell state.
 
+**`health.checksum_mismatch` from `watch-skill doctor`**
+The file doctor downloaded does not match the SHA-256 its publisher lists,
+so nothing was installed. A release being replaced mid-download can cause
+this; retry later. If it persists, install the tool with your package manager
+(`winget install Gyan.FFmpeg`, `brew install ffmpeg`, `apt install ffmpeg`)
+and report it. `health.checksum_unlisted` means the publisher's checksum
+file no longer names the asset; install the same way.
+
+**`download-integrity` warns about an unverified download**
+The source publishes no checksum (evermeet.cx on macOS), so the file was
+installed without one. `downloads.json` in the managed bin dir records each
+download's SHA-256. Install the tool with your package manager if that
+matters on this machine.
+
 **Arabic / CJK titles print as `?` in the terminal**
 Legacy Windows code pages (cp1256 etc.) can't encode every character; the
 CLI degrades unprintable characters instead of crashing. The index itself

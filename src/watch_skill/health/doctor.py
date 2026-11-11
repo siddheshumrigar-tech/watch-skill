@@ -745,6 +745,29 @@ def check_ocr_gap_scripts(fix: bool = True) -> CheckResult:
     )
 
 
+def check_download_integrity() -> CheckResult:
+    """Which binaries doctor downloaded were checked against a published SHA-256.
+
+    An unverified download is a warning, not a failure: some sources (the
+    macOS ffmpeg builds) publish no checksum, and refusing them would leave
+    that platform with no bootstrap at all. The operator should know which.
+    """
+    receipts = binaries.download_receipts()
+    if not receipts:
+        return CheckResult("download-integrity", "ok", "no binaries downloaded by doctor")
+    latest = {r.get("asset"): r for r in receipts}
+    unverified = sorted(str(a) for a, r in latest.items() if not r.get("verified"))
+    if unverified:
+        return CheckResult(
+            "download-integrity", "warn",
+            f"downloaded without a published SHA-256 to check: {', '.join(unverified)} "
+            "(recorded in downloads.json in the managed bin dir); install these "
+            "with your package manager if that matters here",
+        )
+    return CheckResult("download-integrity", "ok",
+                       f"{len(latest)} download(s) matched their publisher's SHA-256")
+
+
 def run_doctor(fix: bool = True) -> DoctorReport:
     """Run every check; when ``fix`` is set, remediate what we can en route."""
     report = DoctorReport()
@@ -755,6 +778,7 @@ def run_doctor(fix: bool = True) -> DoctorReport:
     report.checks.append(check_yt_dlp(fix=fix))
     report.checks.append(check_yt_dlp_freshness(fix=fix))
     report.checks.append(check_js_runtime(fix=fix))
+    report.checks.append(check_download_integrity())
     report.checks.append(check_disk_space())
     report.checks.append(check_memory_headroom())
     report.checks.append(check_gpu())
