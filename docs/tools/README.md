@@ -444,7 +444,14 @@ path.
 are heard twice, and the second copy is removed before the event is
 published: `detail.overlap_trimmed_words` says how many leading words were
 dropped (0 when none). Only as many words as fit in the overlap (three for
-0.5 s) can count as an echo, so a speaker repeating a longer phrase is kept. A piece that was entirely echo is not published, and
+0.5 s) can count as an echo, so a speaker repeating a longer phrase is kept.
+
+Before an utterance reaches the speech model it passes a speech gate. The
+default is the Silero VAD that ships inside faster-whisper; without it, or if
+it fails, a loudness threshold decides instead, and that threshold drops
+quiet speakers. `get_live_status` names the active gate in
+`audio.speech_gate` (`silero` or `energy`) and, after a fallback, why in
+`audio.speech_gate_fallback_reason`. A piece that was entirely echo is not published, and
 `get_live_status` counts it under `audio.overlap_echo_dropped`.
 
 ### `ask_live`

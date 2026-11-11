@@ -50,6 +50,11 @@ def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # suite, so it names both.
     monkeypatch.setenv("WATCHSKILL_WHISPER_MODEL", "tiny")
     monkeypatch.setenv("WATCHSKILL_WHISPER_DEVICE", "cpu")
+    # The live speech gate defaults to Silero when faster-whisper imports, and
+    # Silero judges the suite's synthetic tones as not speech. Pin the energy
+    # gate so a live test means the same thing with and without the whisper
+    # extra; tests/live/test_speech_gate.py opts back into choosing.
+    monkeypatch.setenv("WATCHSKILL_LIVE_SPEECH_GATE", "energy")
     reset_settings()
     _reset_process_globals()
     yield data_dir

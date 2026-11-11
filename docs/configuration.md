@@ -66,6 +66,7 @@ cases), `<data_dir>/health.jsonl` (incident log),
 | `WATCHSKILL_CLOUD_STT_ENABLED` | bool | `false` | **Opt-in** cloud speech-to-text. Only extracted mono-16kHz audio may be sent, never the video file (enforced by tests). |
 | `WATCHSKILL_DIARIZATION_ENABLED` | bool | `false` | Label transcript segments by speaker. Needs the `diarize` extra (pyannote, torch) plus a Hugging Face token. |
 | `WATCHSKILL_HUGGINGFACE_TOKEN` | secret | unset | Hugging Face token for the gated pyannote diarization models. Accept the model terms on hf.co first. |
+| `WATCHSKILL_LIVE_SPEECH_GATE` | str | `auto` | How live audio decides an utterance holds speech before waking the ASR model. `silero` uses the Silero VAD that ships inside faster-whisper (no download); `energy` uses a mean-amplitude threshold, which drops quiet speakers; `auto` picks Silero when it can be imported. If Silero cannot run, the session falls back to `energy` and `get_live_status` reports `audio.speech_gate_fallback_reason`. |
 
 ### API keys and vision providers
 

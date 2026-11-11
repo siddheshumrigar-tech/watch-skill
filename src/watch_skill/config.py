@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -102,6 +103,13 @@ class Settings(BaseSettings):
     diarization_enabled: bool = Field(
         default=False,
         description="Label transcript segments by speaker (needs the diarize extra + HF token).",
+    )
+    live_speech_gate: Literal["auto", "silero", "energy"] = Field(
+        default="auto",
+        description="How live audio decides an utterance holds speech: 'silero' "
+        "uses the Silero VAD bundled with faster-whisper, 'energy' a mean-"
+        "amplitude threshold, 'auto' Silero when importable. Silero falls "
+        "back to energy (and says why in live status) when it cannot run.",
     )
     huggingface_token: SecretStr | None = Field(
         default=None, description="Hugging Face token for gated pyannote diarization models."

@@ -25,7 +25,7 @@ import wave
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from watch_skill.errors import WatchSkillError
 
@@ -260,7 +260,6 @@ class UtteranceAssembler:
     _buffer_start_ts: float | None = None
     _index: int = 0
     _leading_overlap: float = 0.0
-
     def add(self, chunk: AudioChunk) -> Utterance | None:
         """Feed a chunk; get an utterance back once enough has accumulated."""
         if self._buffer_start_ts is None:
@@ -301,6 +300,90 @@ class UtteranceAssembler:
             overlap_seconds=self.overlap_seconds if keep_overlap else 0.0,
             leading_overlap_seconds=leading,
         )
+
+
+class SpeechGate(Protocol):
+    """Decides whether an utterance is worth waking the ASR model for."""
+
+    name: str
+    fallback_reason: str | None
+
+    def is_speech(self, pcm: bytes) -> bool: ...
+
+
+class EnergyGate:
+    """The mean-amplitude gate. Free, but deaf to a quiet speaker."""
+
+    name = "energy"
+
+    def __init__(self, fallback_reason: str | None = None) -> None:
+        self.fallback_reason = fallback_reason
+
+    def is_speech(self, pcm: bytes) -> bool:
+        return not is_probably_silent(pcm)
+
+
+class SileroGate:
+    """Silero VAD from faster-whisper, which ships its ONNX file in the wheel.
+
+    It hears speech by its shape rather than its loudness, so a quiet voice on
+    a laptop microphone gets through. If it cannot run, the first failure
+    switches this gate to energy for good and keeps the reason, because a
+    live session must degrade rather than stop hearing.
+    """
+
+    def __init__(self, vad: Any) -> None:
+        self._vad = vad
+        self._energy: EnergyGate | None = None
+        self.fallback_reason: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "energy" if self._energy is not None else "silero"
+
+    def is_speech(self, pcm: bytes) -> bool:
+        if self._energy is not None:
+            return self._energy.is_speech(pcm)
+        try:
+            import numpy as np  # noqa: PLC0415
+
+            usable = pcm[: len(pcm) - (len(pcm) % SAMPLE_WIDTH)]
+            audio = np.frombuffer(usable, dtype="<i2").astype(np.float32) / 32768.0
+            if audio.size == 0:
+                return False
+            options = self._vad.VadOptions(min_silence_duration_ms=100, speech_pad_ms=30)
+            spans = self._vad.get_speech_timestamps(audio, options, sampling_rate=SAMPLE_RATE)
+        except Exception as exc:  # noqa: BLE001 - any failure degrades to energy
+            self.fallback_reason = f"silero VAD failed, using the energy gate: {str(exc)[:160]}"
+            self._energy = EnergyGate(self.fallback_reason)
+            return self._energy.is_speech(pcm)
+        return bool(spans)
+
+
+def build_speech_gate(prefer: str | None = None) -> SpeechGate:
+    """The gate the ``live_speech_gate`` setting asks for, or the best available.
+
+    Never raises: without faster-whisper the answer is the energy gate plus a
+    reason, which live status reports.
+    """
+    from watch_skill.config import get_settings  # noqa: PLC0415
+
+    choice = prefer or get_settings().live_speech_gate
+    if choice == "energy":
+        return EnergyGate()
+    import importlib  # noqa: PLC0415
+
+    try:
+        # import_module, not `from faster_whisper import vad`: the from-form
+        # hands back None for a module blocked in sys.modules instead of
+        # raising, and a None backend would only fail later, mid-session.
+        vad = importlib.import_module("faster_whisper.vad")
+    except Exception as exc:  # noqa: BLE001 - ImportError, or a broken native stack
+        return EnergyGate(
+            fallback_reason=f"silero VAD unavailable ({str(exc)[:120]}); "
+            'install it with pip install "watch-skill[whisper]"'
+        )
+    return SileroGate(vad)
 
 
 def is_probably_silent(pcm: bytes, threshold: int = 350) -> bool:

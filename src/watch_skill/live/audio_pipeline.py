@@ -12,9 +12,10 @@ Stages, each on its own thread with a bounded queue between:
     speech. If this queue ever fills, the right answer is a recorded gap, not
     a silent discard.
 ``assemble``
-    Accumulates chunks into overlapping utterances and gates out silence
-    arithmetically, so the transcription model is never woken for a room
-    where nobody is talking.
+    Accumulates chunks into overlapping utterances and passes each through a
+    speech gate (Silero VAD, or the energy threshold when Silero cannot run),
+    so the transcription model is never woken for a room where nobody is
+    talking.
 ``transcribe``
     Hands each utterance to the ASR backend and emits a speech event.
 """
@@ -28,8 +29,9 @@ from watch_skill.live.asr import ASRBackend
 from watch_skill.live.audio import (
     AudioChunk,
     FfmpegAudioSource,
+    SpeechGate,
     UtteranceAssembler,
-    is_probably_silent,
+    build_speech_gate,
 )
 from watch_skill.live.pipeline import Overflow, Pipeline
 from watch_skill.transcribe.overlap import strip_overlap_echo
@@ -50,8 +52,10 @@ class AudioRuntime:
         backend: ASRBackend | None,
         on_speech: Any,
         on_gap: Any = None,
+        speech_gate: SpeechGate | None = None,
     ) -> None:
         self.session_id = session_id
+        self._gate = speech_gate if speech_gate is not None else build_speech_gate()
         self.source = source
         self.backend = backend
         self.on_speech = on_speech
@@ -102,7 +106,7 @@ class AudioRuntime:
         # Flush before tearing down: the last utterance is often the one the
         # operator stopped the session to hear.
         tail = self._assembler.flush()
-        if tail is not None and not is_probably_silent(tail.pcm):
+        if tail is not None and self._gate.is_speech(tail.pcm):
             try:
                 self._transcribe(tail)
             except Exception:  # noqa: BLE001
@@ -152,7 +156,7 @@ class AudioRuntime:
             return
         with self._lock:
             self.utterances += 1
-        if is_probably_silent(utterance.pcm):
+        if not self._gate.is_speech(utterance.pcm):
             with self._lock:
                 self.silent_skipped += 1
             return
@@ -205,6 +209,12 @@ class AudioRuntime:
             pass  # the status carries it; no event storm
 
     def status(self) -> dict[str, Any]:
+        payload = self._backend_status()
+        payload["speech_gate"] = self._gate.name
+        payload["speech_gate_fallback_reason"] = self._gate.fallback_reason
+        return payload
+
+    def _backend_status(self) -> dict[str, Any]:
         with self._lock:
             if self.backend is None:
                 return {"status": "degraded",
@@ -235,6 +245,8 @@ class AudioRuntime:
                 "last_media_ts": round(self.last_media_ts, 3),
                 "queue_depths": self.pipeline.depths(),
                 "backend": self.backend.name if self.backend else None,
+                "speech_gate": self._gate.name,
+                "speech_gate_fallback_reason": self._gate.fallback_reason,
             }
 
 

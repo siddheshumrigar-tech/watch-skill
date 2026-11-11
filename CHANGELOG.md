@@ -55,6 +55,13 @@
   final piece (`detail.overlap_trimmed_words`), at most as many as fit in the
   overlap, and a piece that was all echo is dropped and counted as
   `overlap_echo_dropped` in the audio stats.
+- Live audio decides whether an utterance holds speech with the Silero VAD
+  bundled in faster-whisper instead of a fixed loudness threshold, so a quiet
+  speaker is no longer dropped as silence. Without faster-whisper, or if
+  Silero fails, it falls back to the energy gate. `get_live_status` reports
+  `audio.speech_gate` and `audio.speech_gate_fallback_reason`; the
+  `WATCHSKILL_LIVE_SPEECH_GATE` setting (`auto` | `silero` | `energy`) forces
+  a choice.
 
 ### Index and retrieval
 
