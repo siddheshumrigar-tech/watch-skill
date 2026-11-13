@@ -94,6 +94,49 @@
   and is released after `WATCHSKILL_EMBEDDING_IDLE_SECONDS` (default 300,
   `0` = never) without use.
 
+### Sound events
+
+- `watch --audio-events`, `watch_video(audio_events=true)`, REST
+  `audio_events` and background jobs detect non-speech sounds (`speech`,
+  `music`, `applause`, `laughter`, `alarm`, `silence`) with timestamps and a
+  confidence, through the new `audio-events` extra and a YAMNet ONNX model
+  the operator configures (`WATCHSKILL_AUDIO_EVENTS_MODEL_PATH`,
+  `WATCHSKILL_AUDIO_EVENTS_LABELS_PATH`); nothing is downloaded. Silence is
+  measured from RMS and needs no model. A missing extra or model is a
+  warning (`audio_events.missing_dependency`,
+  `audio_events.model_not_configured`), never a failed watch.
+- Events are stored (index schema v12, `audio_events`) and searchable as kind
+  `audio_event`, so `search_videos("applause")` finds the moment;
+  `get_moment` lists them under `Sounds:` and the report gains a `## Sounds`
+  section. See [docs/audio-events.md](docs/audio-events.md).
+
+### Verification
+
+- `sqlite_query` judges a query by its statement verb after removing
+  comments, string literals and quoted identifiers, so a column named
+  `replace`, the `replace()` function and `'drop table x'` are no longer
+  refused, and `VALUES` is allowed. Writes, `WITH ... INSERT` and multiple
+  statements are still refused, over the same `mode=ro` handle.
+- `visual_absent` matches OCR text with the index's search normalization
+  (case, width, Arabic hamza and diacritics) and an optional
+  `min_similarity`; the new `visual_present` is its mirror.
+- New `transcript_contains`, `transcript_absent` and `speaker_said` checks
+  read an indexed transcript read-only, honour `start` / `end`, and work
+  under the isolated verifier. Missing evidence is INCONCLUSIVE.
+- New `test_report` check reads JUnit XML (counts from the test cases,
+  required tests by name; DOCTYPE and ENTITY refused).
+- New `failed_request` check loads a page in the verifier's own browser and
+  fails on network failures or responses at or above `min_status`.
+
+### Doctor
+
+- Every binary doctor downloads (yt-dlp, ffmpeg/ffprobe, deno) is checked
+  against the SHA-256 its publisher lists; a mismatch installs nothing and
+  fails with `health.checksum_mismatch`. Sources that publish no checksum
+  (evermeet.cx on macOS) are installed and recorded as `verified: false` in
+  `<bin_dir>/downloads.json`, which the new `download-integrity` check
+  reports.
+
 ## DeepWatch v0.1.2 — 2026-09-08
 
 Moves with Watch Skill 1.4.1, and carries the gate work that release needed.

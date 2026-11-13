@@ -121,6 +121,7 @@ def render_report(result: WatchResult) -> str:
         ]
 
     lines += _transcript_lines(result)
+    lines += _sound_lines(result)
     lines += _warning_lines(result)
     lines += ["", "---", f"_Work dir: `{result.work_dir}` — frames live here._"]
     lines += [
@@ -128,6 +129,19 @@ def render_report(result: WatchResult) -> str:
         "```json", json.dumps(result.to_summary(), ensure_ascii=False, indent=2), "```",
     ]
     return "\n".join(lines)
+
+
+def _sound_lines(result: WatchResult) -> list[str]:
+    """Non-speech sound events, one per line, when detection ran."""
+    if not result.audio_events:
+        return []
+    lines = ["", "## Sounds", ""]
+    for event in result.audio_events:
+        lines.append(
+            f"- [{format_time(event.start)}–{format_time(event.end)}] {event.label} "
+            f"({event.confidence:.2f})"
+        )
+    return lines
 
 
 def _warning_lines(result: WatchResult) -> list[str]:

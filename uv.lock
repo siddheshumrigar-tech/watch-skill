@@ -6352,6 +6352,11 @@ api = [
 attest = [
     { name = "cryptography" },
 ]
+audio-events = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "onnxruntime" },
+]
 autogen = [
     { name = "autogen-core" },
 ]
@@ -6426,7 +6431,9 @@ requires-dist = [
     { name = "imagehash", marker = "extra == 'perceive'", specifier = ">=4.3,<5" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3,<2" },
     { name = "llama-index-core", marker = "extra == 'llamaindex'", specifier = ">=0.12,<0.16" },
+    { name = "numpy", marker = "extra == 'audio-events'", specifier = ">=2.4,<3" },
     { name = "numpy", marker = "extra == 'index'", specifier = ">=2.4,<3" },
+    { name = "onnxruntime", marker = "extra == 'audio-events'", specifier = ">=1.27,<2" },
     { name = "onnxruntime", marker = "extra == 'ocr'", specifier = ">=1.27,<2" },
     { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.1,<1" },
     { name = "opencv-python-headless", marker = "extra == 'perceive'", specifier = ">=5.0,<6" },
@@ -6442,9 +6449,9 @@ requires-dist = [
     { name = "typer", specifier = ">=0.26,<1" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.50,<1" },
     { name = "watch-skill", extras = ["perceive", "index", "mcp"], marker = "extra == 'standard'" },
-    { name = "watch-skill", extras = ["perceive", "ocr", "whisper", "index", "mcp", "api", "loop", "attest"], marker = "extra == 'all'" },
+    { name = "watch-skill", extras = ["perceive", "ocr", "whisper", "index", "mcp", "api", "loop", "attest", "audio-events"], marker = "extra == 'all'" },
 ]
-provides-extras = ["perceive", "ocr", "whisper", "index", "mcp", "api", "loop", "diarize", "attest", "langchain", "openai-agents", "crewai", "llamaindex", "autogen", "standard", "all"]
+provides-extras = ["perceive", "ocr", "whisper", "index", "mcp", "api", "loop", "diarize", "audio-events", "attest", "langchain", "openai-agents", "crewai", "llamaindex", "autogen", "standard", "all"]
 
 [package.metadata.requires-dev]
 dev = [

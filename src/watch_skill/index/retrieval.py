@@ -21,7 +21,7 @@ class Hit:
     """One retrieved piece of evidence."""
 
     video_id: str
-    kind: str  # segment | scene | ocr
+    kind: str  # segment | scene | ocr | audio_event
     ref_id: int
     timestamp: float | None
     text: str
@@ -55,6 +55,8 @@ class MomentContext:
     frames: list[dict[str, Any]] = field(default_factory=list)
     segments: list[dict[str, Any]] = field(default_factory=list)
     ocr: list[dict[str, Any]] = field(default_factory=list)
+    # Non-speech sounds overlapping the window: {start, end, label, confidence, raw_label}.
+    audio_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _fts_query(text: str) -> str:
@@ -585,6 +587,11 @@ def get_moment(
                WHERE video_id = ? AND timestamp BETWEEN ? AND ? ORDER BY timestamp""",
             (video["id"], lo, hi),
         ).fetchall()
+        sounds = conn.execute(
+            """SELECT start, end, label, confidence, raw_label FROM audio_events
+               WHERE video_id = ? AND end >= ? AND start <= ? ORDER BY start""",
+            (video["id"], lo, hi),
+        ).fetchall()
     finally:
         conn.close()
     # Words are stored as JSON on the segment; decode them here so callers
@@ -611,4 +618,5 @@ def get_moment(
         frames=[dict(f) for f in frames],
         segments=decoded,
         ocr=[dict(o) for o in ocr],
+        audio_events=[dict(s) for s in sounds],
     )

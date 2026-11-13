@@ -160,6 +160,7 @@ def watch(
     use_cache: bool = True,
     on_progress: Callable[[str, float], None] | None = None,
     language: str | None = None,
+    audio_events: bool | None = None,
 ) -> WatchResult:
     """Analyze any video source; returns frames + transcript + metadata.
 
@@ -168,6 +169,9 @@ def watch(
     absolute times. ``duration_cap`` bounds live-stream capture.
     ``language`` forces the spoken language (ISO 639-1 code or English
     name); omitted, whisper detects it and the transcript reports it.
+    ``audio_events`` detects non-speech sounds (default: the
+    ``audio_events_enabled`` setting); a missing extra or model becomes a
+    warning with its fix, never a failure.
     """
     # Cheap argument checks first: a bad budget or language should not cost
     # a download.
@@ -288,6 +292,16 @@ def watch(
             start_seconds=start_seconds, end_seconds=end_seconds,
         )
 
+    sound_events: list = []
+    do_events = get_settings().audio_events_enabled if audio_events is None else audio_events
+    if do_events and metadata.has_audio and acq.video_path is not None:
+        from watch_skill.transcribe.audio_events import sound_events_for_watch
+
+        progress("detecting sound events", 0.92)
+        sound_events, event_warnings = sound_events_for_watch(
+            acq.video_path, work_dir, start_seconds, end_seconds)
+        warnings.extend(event_warnings)
+
     if perception is not None and perception.sampling_sparse:
         warnings.append(_warning(
             "perceive.sparse_sampling",
@@ -318,4 +332,5 @@ def watch(
         end_seconds=end_seconds,
         media_kind=media_kind,
         warnings=[*transcript.warnings, *warnings],
+        audio_events=sound_events,
     )

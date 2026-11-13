@@ -725,3 +725,28 @@ embedder. Measured with that embedder:
 | recall@3 | 1.0 | 1.0 |
 | MRR | 0.938 | 0.938 (recorded as `baseline_mrr`) |
 | agreement-vs-outlier case, top hit | the outlier | the agreed answer |
+
+### Sound events run YAMNet on onnxruntime, from a model the operator supplies (2026-11-11)
+
+Non-speech sound detection (music, applause, laughter, alarm, silence) sits
+behind an `AudioEventClassifier` protocol so the backend can change without
+touching the pipeline or the index. The shipped backend is Google's YAMNet
+exported to ONNX: 521 AudioSet classes, about 4 MB, fast on CPU, and run by
+onnxruntime, which the `ocr` extra and fastembed already install. CLAP and
+PANNs classify more finely and cost one to two orders of magnitude more in
+size and latency, which a watch that is mostly transcription cannot justify.
+
+The weights are not downloaded. Every model this project fetches is either
+pinned by its publisher's checksum or fetched by a library that pins it; no
+publisher distributes a YAMNet ONNX export with a hash we could verify, and a
+model pulled from an arbitrary mirror is exactly the supply-chain gap the
+SHA-256 check on doctor's binaries closes. So the operator exports it once
+(tf2onnx from TF-Hub) and points two settings at the files. A pinned
+`watch-skill models pull audio-events` is future work, once there is a
+provenance to pin.
+
+Silence is measured, not classified: RMS below −50 dBFS. It needs no model,
+so a watch without the model still reports dead air, and a missing extra or
+model is a warning with a fix rather than a failed watch (the same rule as
+diarization). Coarse labels are folded from AudioSet names by keyword, so the
+label set an agent sees is six words, not 521.

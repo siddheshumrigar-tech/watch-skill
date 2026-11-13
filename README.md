@@ -56,7 +56,9 @@ produced it.
 
 **Perception.** Video, audio and screen activity become frames, transcripts and
 OCR text, each carrying an absolute timestamp. Index a source once and query it
-for as long as you keep it; every answer cites a moment you can open.
+for as long as you keep it; every answer cites a moment you can open. With
+`--audio-events`, non-speech sounds (music, applause, laughter, alarms,
+silence) are indexed too; see [docs/audio-events.md](docs/audio-events.md).
 
 **Verification.** A frozen contract — file digests, JSON values, SQL results,
 HTTP responses, DOM state — is evaluated by a separate process. The verdict is

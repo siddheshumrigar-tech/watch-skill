@@ -66,6 +66,10 @@ cases), `<data_dir>/health.jsonl` (incident log),
 | `WATCHSKILL_CLOUD_STT_ENABLED` | bool | `false` | **Opt-in** cloud speech-to-text. Only extracted mono-16kHz audio may be sent, never the video file (enforced by tests). |
 | `WATCHSKILL_DIARIZATION_ENABLED` | bool | `false` | Label transcript segments by speaker. Needs the `diarize` extra (pyannote, torch) plus a Hugging Face token. |
 | `WATCHSKILL_HUGGINGFACE_TOKEN` | secret | unset | Hugging Face token for the gated pyannote diarization models. Accept the model terms on hf.co first. |
+| `WATCHSKILL_AUDIO_EVENTS_ENABLED` | bool | `false` | Detect non-speech sound events (music, applause, laughter, alarm, silence) on every watch. Needs the `audio-events` extra and a configured model; see [audio-events.md](audio-events.md). |
+| `WATCHSKILL_AUDIO_EVENTS_MODEL_PATH` | path | unset | YAMNet exported to ONNX with a single rank-1 float32 waveform input. Never downloaded for you. |
+| `WATCHSKILL_AUDIO_EVENTS_LABELS_PATH` | path | unset | YAMNet's `yamnet_class_map.csv` for that model. |
+| `WATCHSKILL_AUDIO_EVENTS_MIN_CONFIDENCE` | float | `0.3` | Lowest classifier score reported as a sound event. |
 | `WATCHSKILL_LIVE_PROVISIONAL_SPEECH` | bool | `true` | Publish a provisional live `speech` event (`final: false`) before the final one for the same utterance. |
 | `WATCHSKILL_LIVE_PROVISIONAL_AFTER_SECONDS` | float | `2.0` | Audio an utterance must hold before its provisional event is transcribed. |
 | `WATCHSKILL_LIVE_SPEECH_GATE` | str | `auto` | How live audio decides an utterance holds speech before waking the ASR model. `silero` uses the Silero VAD that ships inside faster-whisper (no download); `energy` uses a mean-amplitude threshold, which drops quiet speakers; `auto` picks Silero when it can be imported. If Silero cannot run, the session falls back to `energy` and `get_live_status` reports `audio.speech_gate_fallback_reason`. |

@@ -147,7 +147,7 @@ def _insert_video(conn: sqlite3.Connection, result: WatchResult, video_id: str, 
     )
     # re-analysis replaces derived rows (cached answers invalidate too —
     # they were derived from the old analysis)
-    for table in ("segments", "scenes", "ocr_blocks", "embeddings", "answers"):
+    for table in ("segments", "scenes", "ocr_blocks", "audio_events", "embeddings", "answers"):
         conn.execute(f"DELETE FROM {table} WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM fts WHERE video_id = ?", (video_id,))
 
@@ -188,7 +188,29 @@ def _insert_derived(conn: sqlite3.Connection, result: WatchResult, video_id: str
                     ),
                 )
                 to_embed.append(("ocr", ocr_cur.lastrowid, frame.timestamp_seconds, block.text))
+    to_embed.extend(_insert_audio_events(conn, result, video_id))
     return to_embed
+
+
+def _insert_audio_events(conn: sqlite3.Connection, result: WatchResult,
+                         video_id: str) -> list[tuple]:
+    """Store sound events and return their searchable text.
+
+    The text is ``[sound: applause] Applause`` so a keyword search for the
+    coarse label or the classifier's own class name finds the moment.
+    """
+    items: list[tuple] = []
+    for event in getattr(result, "audio_events", None) or []:
+        raw = getattr(event, "raw_label", None)
+        cur = conn.execute(
+            "INSERT INTO audio_events (video_id, start, end, label, confidence, raw_label, "
+            "backend) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (video_id, event.start, event.end, event.label, event.confidence, raw,
+             getattr(event, "backend", None)),
+        )
+        text = f"[sound: {event.label}] {raw or event.label}"
+        items.append(("audio_event", cur.lastrowid, event.start, text))
+    return items
 
 
 def set_scene_description(conn: sqlite3.Connection, scene_row_id: int, description: str) -> None:

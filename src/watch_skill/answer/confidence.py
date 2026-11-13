@@ -46,7 +46,9 @@ def evidence_agreement(hits: list[Hit], window: float = AGREEMENT_WINDOW_SECONDS
         and abs(h.timestamp - anchor) <= window
         and h.score >= strength_gate
     }
-    return len(kinds) / 3.0
+    # Three kinds is full agreement; a fourth (audio_event) must not push the
+    # score past 1.0, which the confidence thresholds are calibrated against.
+    return _clamp(len(kinds) / 3.0)
 
 
 def _competitor_score(hits: list[Hit], window: float = AGREEMENT_WINDOW_SECONDS) -> float:

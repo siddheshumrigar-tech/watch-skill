@@ -74,6 +74,7 @@ def _run_watch(
     budget: int | None,
     progress_cb,
     language: str | None = None,
+    audio_events: bool = False,
 ) -> tuple[str, Any]:
     """The synchronous watch+index pipeline shared by both watch paths."""
     from watch_skill.index import index_watch_result
@@ -86,6 +87,7 @@ def _run_watch(
         max_frames=budget,
         on_progress=progress_cb,
         language=language,
+        audio_events=audio_events or None,
     )
     progress_cb("indexing (search + embeddings + scene descriptions)", 0.9)
     video_id = index_watch_result(result)
@@ -127,6 +129,7 @@ async def watch_video(
     budget: int | None = None,
     background: bool = False,
     language: str | None = None,
+    audio_events: bool = False,
     ctx: Context | None = None,
 ) -> list[Any]:
     """FIRST LOOK at any video — use when given a video you have NOT analyzed
@@ -144,8 +147,14 @@ async def watch_video(
     mp3 with cover art, wav) are transcribed and indexed with frames skipped
     by design. The report ends with a "Machine summary" JSON block (media_kind,
     transcript language, frame count, warnings with code/message/fix) — read
-    that instead of parsing prose. Long video or strict client timeout? Pass
-    background=true for an instant job_id, then poll get_status."""
+    that instead of parsing prose. audio_events=true also detects non-speech
+    sounds (music, applause, laughter, alarm, silence) with timestamps; they
+    are indexed, so ask_video/search_videos("applause") find them. It needs
+    the audio-events extra and a configured YAMNet model; if either is
+    missing the watch still succeeds, silence is still reported, and the
+    summary's warnings carry the code and fix. Long video or strict client
+    timeout? Pass background=true for an instant job_id, then poll
+    get_status."""
     from watch_skill import jobs
 
     if background:
@@ -155,10 +164,12 @@ async def watch_video(
         key = f"watch:{source}:{start}:{end}:{budget}"
         if language:
             key += f":{language}"
+        if audio_events:
+            key += ":audio_events"
         durable = jobs.submit_and_run(
             "watch",
             {"source": source, "start": start, "end": end, "budget": budget,
-             "language": language},
+             "language": language, "audio_events": audio_events},
             idempotency_key=key,
         )
         return [
@@ -170,7 +181,8 @@ async def watch_video(
 
     job = jobs.start_job(
         "watch",
-        lambda progress: _run_watch(source, start, end, budget, progress, language),
+        lambda progress: _run_watch(source, start, end, budget, progress, language,
+                                    audio_events),
     )
     while job.status == "running":
         if ctx is not None:
@@ -369,6 +381,10 @@ def get_moment(
     if ctx.ocr:
         lines.append("On-screen text (OCR):")
         lines += [f"- [{format_time(o['timestamp'])}] {o['text']}" for o in ctx.ocr]
+    if getattr(ctx, "audio_events", None):
+        lines.append("Sounds:")
+        lines += [f"- [{format_time(e['start'])}–{format_time(e['end'])}] {e['label']} "
+                  f"({e['confidence']:.2f})" for e in ctx.audio_events]
     lines.append("Frames:")
     lines += [f"- t={format_time(f['timestamp'])}: `{f['frame_path']}`" for f in ctx.frames]
     return ["\n".join(lines), *_frame_images([f["frame_path"] for f in ctx.frames])]

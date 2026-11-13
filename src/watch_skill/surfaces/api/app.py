@@ -87,6 +87,12 @@ class WatchRequest(BaseModel):
         default=None,
         description="Spoken language as an ISO 639-1 code ('en', 'es'); omit to auto-detect.",
     )
+    audio_events: bool = Field(
+        default=False,
+        description="Also detect non-speech sounds (music, applause, laughter, alarm, "
+        "silence). Needs the audio-events extra and a configured model; missing "
+        "pieces come back as warnings in the summary.",
+    )
     inline_frames: int = Field(default=0, ge=0, le=12, description="How many frames to inline as base64.")
 
 
@@ -185,6 +191,7 @@ def create_app() -> FastAPI:
                 end_seconds=parse_time(req.end),
                 max_frames=req.budget,
                 language=req.language,
+                audio_events=req.audio_events or None,
             )
             video_id = index_watch_result(result)
         except WatchSkillError as exc:
@@ -200,6 +207,7 @@ def create_app() -> FastAPI:
             "transcript_language_probability": result.transcript.language_probability,
             "duration_seconds": result.metadata.duration_seconds,
             "summary": result.to_summary(),
+            "audio_events": [e.to_public() for e in result.audio_events],
         }
 
     @app.post("/v1/ask", tags=["video"])

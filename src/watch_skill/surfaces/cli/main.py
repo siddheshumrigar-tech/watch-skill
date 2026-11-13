@@ -134,6 +134,11 @@ def watch(
         help="Spoken language as an ISO 639-1 code (en, es, ar…). Omit to "
         "auto-detect; the report names the language either way.",
     ),
+    audio_events: bool = typer.Option(
+        False, "--audio-events",
+        help="Detect non-speech sounds (music, applause, laughter, alarm, silence). "
+        "Needs the audio-events extra and a configured model.",
+    ),
     duration: float | None = typer.Option(
         None, "--duration", help="Bound live-stream capture to N seconds."
     ),
@@ -204,6 +209,7 @@ def watch(
             diarize=True if diarize else None,
             word_timestamps=word_timestamps,
             language=language,
+            audio_events=True if audio_events else None,
             duration_cap=duration,
             out_dir=Path(out_dir) if out_dir else None,
             use_cache=not no_cache,
@@ -215,7 +221,7 @@ def watch(
         raise typer.Exit(code=1) from None
     # An audio file has no frames and is still worth asking about later.
     video_id = None
-    if index and (result.perception is not None or result.transcript):
+    if index and (result.perception is not None or result.transcript or result.audio_events):
         from watch_skill.index import index_watch_result
 
         video_id = index_watch_result(result)

@@ -40,6 +40,7 @@ then local whisper), and indexes everything. For follow-ups call
 | `question` | str | — | Echoed in the report header so the agent answers it from the returned evidence |
 | `start` / `end` | str | — | Zoom into a section with denser sampling |
 | `budget` | int | config | Frame-count cap for this call |
+| `audio_events` | bool | `false` | Also detect non-speech sounds (music, applause, laughter, alarm, silence) with timestamps; they are indexed and searchable. Needs the `audio-events` extra and a configured model; missing pieces come back as summary warnings, never a failure. See [audio-events.md](../audio-events.md) |
 | `background` | bool | `false` | Return a `job_id` instantly; poll `get_status` (use for long videos or strict client timeouts) |
 | `language` | str | auto-detect | Force the spoken language as an ISO 639-1 code (`en`, `es`, `ar`). An unknown code fails before any download with `transcribe.bad_language` |
 

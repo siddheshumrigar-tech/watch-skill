@@ -65,6 +65,7 @@ def _watch_job(ctx: JobContext) -> tuple[str | None, str | None]:
         end_seconds=parse_time(payload.get("end")),
         max_frames=payload.get("budget"),
         language=payload.get("language"),
+        audio_events=payload.get("audio_events") or None,
         on_progress=on_progress,
     )
     ctx.checkpoint(JobStage.EMBED, _STAGE_PROGRESS[JobStage.EMBED])

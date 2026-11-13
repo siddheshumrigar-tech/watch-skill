@@ -420,6 +420,21 @@ MIGRATIONS: list[Migration] = [
     ALTER TABLE videos ADD COLUMN transcript_language TEXT;
     ALTER TABLE videos ADD COLUMN transcript_language_probability REAL;
     """,
+    # v12 — non-speech sound events (music, applause, alarm, ...), indexed in
+    # fts/embeddings as kind 'audio_event'
+    """
+    CREATE TABLE audio_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+        start REAL NOT NULL,
+        end REAL NOT NULL,
+        label TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        raw_label TEXT,
+        backend TEXT
+    );
+    CREATE INDEX idx_audio_events_video ON audio_events(video_id, start);
+    """,
 ]
 
 

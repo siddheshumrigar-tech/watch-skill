@@ -104,6 +104,24 @@ class Settings(BaseSettings):
         default=False,
         description="Label transcript segments by speaker (needs the diarize extra + HF token).",
     )
+    audio_events_enabled: bool = Field(
+        default=False,
+        description="Detect non-speech sound events (music, applause, laughter, "
+        "alarm, silence) on every watch. Needs the audio-events extra and a "
+        "configured model; silence is detected without one.",
+    )
+    audio_events_model_path: Path | None = Field(
+        default=None,
+        description="A YAMNet ONNX export whose only input is a rank-1 float32 "
+        "waveform (see docs/audio-events.md). Never downloaded for you.",
+    )
+    audio_events_labels_path: Path | None = Field(
+        default=None, description="YAMNet's yamnet_class_map.csv for that model.",
+    )
+    audio_events_min_confidence: float = Field(
+        default=0.3, ge=0.0, le=1.0,
+        description="Lowest classifier score reported as a sound event.",
+    )
     live_speech_gate: Literal["auto", "silero", "energy"] = Field(
         default="auto",
         description="How live audio decides an utterance holds speech: 'silero' "
