@@ -50,6 +50,12 @@ class LiveError(WatchSkillError):
     default_code = "live.failed"
 
 
+STOP_WAIT_SECONDS = 60.0
+"""How long a second caller of stop waits for the stop already in progress.
+
+Long enough for the slowest step a stop performs, transcribing the trailing
+utterance on a CPU, plus the two bounded pipeline drains."""
+
 _PROFILE_CAPACITY = {
     LiveProfile.LOCAL_LITE: 4,
     LiveProfile.LOCAL_REALTIME: 8,
@@ -67,6 +73,9 @@ class RunningSession:
         self.state = DetectorState()
         self.pipeline = Pipeline()
         self.stop_event = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._stopped = threading.Event()
+        self._stopping_thread: int | None = None
         # Opened by the caller, before the session row exists — see start_live.
         self._source: Any = source
         self._threads: list[threading.Thread] = []
@@ -181,10 +190,13 @@ class RunningSession:
         # identical from the capture loop's side, and only one of them means
         # the evidence is complete.
         failure = getattr(self._source, "failure", None)
+        # No waiting here: if a caller is already stopping the session, its
+        # source.stop() may be waiting for this very thread to leave.
         if failure is not None:
-            self.stop(reason=failure.message, failed=True, error=failure.to_dict())
+            self.stop(reason=failure.message, failed=True, error=failure.to_dict(),
+                      wait=False)
             return
-        self.stop(reason="source ended")
+        self.stop(reason="source ended", wait=False)
 
     # --- stages ------------------------------------------------------------
 
@@ -636,10 +648,27 @@ class RunningSession:
     # --- stopping ----------------------------------------------------------
 
     def stop(self, reason: str = "stopped by request", *, failed: bool = False,
-             error: dict[str, Any] | None = None) -> LiveSession:
-        if self.stop_event.is_set():
+             error: dict[str, Any] | None = None, wait: bool = True) -> LiveSession:
+        with self._stop_lock:
+            first = not self.stop_event.is_set()
+            self.stop_event.set()
+            if first:
+                self._stopping_thread = threading.get_ident()
+        if not first:
+            # Another thread owns the stop, usually the capture loop because
+            # the source ended. Returning before it finishes hands the caller
+            # a session that is still running, which finalize_session refuses.
+            # The owning thread itself must not wait on its own completion.
+            if wait and threading.get_ident() != self._stopping_thread:
+                self._stopped.wait(timeout=STOP_WAIT_SECONDS)
             return self.session
-        self.stop_event.set()
+        try:
+            return self._stop_now(reason, failed=failed, error=error)
+        finally:
+            self._stopped.set()
+
+    def _stop_now(self, reason: str, *, failed: bool,
+                  error: dict[str, Any] | None) -> LiveSession:
         db.update_session(self.session.session_id, state=LiveState.STOPPING)
         if self._source is not None:
             self._source.stop()
